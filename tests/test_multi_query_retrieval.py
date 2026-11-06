@@ -1,0 +1,218 @@
+import unittest
+from threading import Barrier
+from types import SimpleNamespace
+
+from multi_query_retrieval import (
+    build_intent_query_groups,
+    build_query_variants,
+    format_evidence,
+    search_intent_groups,
+    search_and_fuse,
+    source_filenames,
+)
+
+
+def hit(file_id, filename, text):
+    return SimpleNamespace(
+        file_id=file_id,
+        filename=filename,
+        content=[SimpleNamespace(text=text)],
+    )
+
+
+class FakeVectorStores:
+    def __init__(self, results_by_query):
+        self.results_by_query = results_by_query
+        self.calls = []
+
+    def search(self, **kwargs):
+        self.calls.append(kwargs)
+        return SimpleNamespace(data=self.results_by_query[kwargs["query"]])
+
+
+class MultiQueryRetrievalTests(unittest.TestCase):
+    def test_builds_distinct_original_canonical_and_alternative_queries(self):
+        variants = build_query_variants(
+            "ajil deer yu yu hiij boldoggui we",
+            "Ажил дээр юу хийхийг хориглодог вэ?",
+            [
+                "Ажлын байранд юу хийхийг хориглодог вэ?",
+                "Ажил дээр юу хийхийг хориглодог вэ?",
+            ],
+        )
+        self.assertEqual(
+            [label for label, _ in variants],
+            ["original", "canonical", "alternative_1"],
+        )
+
+    def test_single_intent_keeps_the_existing_query_budget(self):
+        groups = build_intent_query_groups(
+            "latin original",
+            [
+                {
+                    "intent": "Журмын хүсэлт",
+                    "canonical_query": "Журмын хүсэлт юу вэ?",
+                    "search_documents": True,
+                    "is_ambiguous": False,
+                    "alternatives": ["Журмын хүсэлтийг тайлбарла."],
+                }
+            ],
+        )
+        self.assertEqual(
+            [query for _, query in groups[0]["queries"]],
+            ["latin original", "Журмын хүсэлт юу вэ?", "Журмын хүсэлтийг тайлбарла."],
+        )
+
+    def test_compound_requests_are_searched_in_separate_groups(self):
+        groups = build_intent_query_groups(
+            "leave request and weather tomorrow",
+            [
+                {
+                    "intent": "Чөлөө хүсэх журам",
+                    "canonical_query": "Чөлөө авах хүсэлтийг хэрхэн гаргах вэ?",
+                    "search_documents": True,
+                    "is_ambiguous": False,
+                    "alternatives": ["Чөлөөний хүсэлтийг хаана өгөх вэ?"],
+                },
+                {
+                    "intent": "Маргаашийн цаг агаар",
+                    "canonical_query": "Маргааш цаг агаар ямар байх вэ?",
+                    "search_documents": False,
+                    "is_ambiguous": False,
+                    "alternatives": [],
+                },
+                {
+                    "intent": "Чөлөө батлах хүн",
+                    "canonical_query": "Чөлөөний хүсэлтийг хэн батлах вэ?",
+                    "search_documents": True,
+                    "is_ambiguous": False,
+                    "alternatives": ["Хэн зөвшөөрөх вэ?"],
+                },
+            ],
+        )
+
+        self.assertEqual([group["intent"] for group in groups], ["Чөлөө хүсэх журам", "Чөлөө батлах хүн"])
+        self.assertEqual(sum(len(group["queries"]) for group in groups), 4)
+        self.assertNotIn(
+            "leave request and weather tomorrow",
+            [query for group in groups for _, query in group["queries"]],
+        )
+
+    def test_ambiguous_and_general_requests_are_not_retrieved(self):
+        groups = build_intent_query_groups(
+            "query",
+            [
+                {
+                    "intent": "Хоёрдмол хүсэлт",
+                    "canonical_query": "Хоёрдмол хүсэлт юу вэ?",
+                    "search_documents": False,
+                    "is_ambiguous": True,
+                    "alternatives": [],
+                },
+                {
+                    "intent": "Гадаад мэдээлэл",
+                    "canonical_query": "Маргаашийн цаг агаар ямар вэ?",
+                    "search_documents": False,
+                    "is_ambiguous": False,
+                    "alternatives": [],
+                },
+            ],
+        )
+        self.assertEqual(groups, [])
+
+    def test_group_search_fuses_per_intent_then_interleaves_results(self):
+        client = SimpleNamespace(
+            vector_stores=FakeVectorStores(
+                {
+                    "leave query": [
+                        hit("l1", "leave.docx", "Leave request steps."),
+                        hit("l2", "leave.docx", "Leave approval details."),
+                    ],
+                    "approval query": [
+                        hit("l2", "leave.docx", "Leave approval details."),
+                        hit("l3", "leave.docx", "Leave date constraints."),
+                    ],
+                    "laptop query": [
+                        hit("i1", "it.docx", "IT ticket steps."),
+                        hit("i2", "it.docx", "IT contact details."),
+                    ],
+                }
+            )
+        )
+        groups = [
+            {
+                "intent": "Чөлөөний журам",
+                "queries": [("canonical", "leave query"), ("alternative_1", "approval query")],
+            },
+            {
+                "intent": "Компьютерийн асуудал",
+                "queries": [("canonical", "laptop query")],
+            },
+        ]
+        results = search_intent_groups(client, "vs_test", groups, final_k=4)
+
+        self.assertEqual(len(client.vector_stores.calls), 3)
+        self.assertEqual([item["intents"][0] for item in results[:2]], ["Чөлөөний журам", "Компьютерийн асуудал"])
+        self.assertEqual(len(results), 4)
+        self.assertIn("Relevant to: Чөлөөний журам", format_evidence(results))
+
+    def test_rrf_merges_duplicate_passages_and_preserves_source(self):
+        client = SimpleNamespace(
+            vector_stores=FakeVectorStores(
+                {
+                    "query one": [
+                        hit("f1", "work-rules.docx", "No smoking at work."),
+                        hit("f2", "safety.docx", "Report workplace hazards."),
+                    ],
+                    "query two": [
+                        hit("f1", "work-rules.docx", "No smoking at work."),
+                        hit("f3", "safety-2.docx", "Wear required protective equipment."),
+                    ],
+                }
+            )
+        )
+        results = search_and_fuse(
+            client,
+            "vs_test",
+            [("canonical", "query one"), ("alternative_1", "query two")],
+            per_query=2,
+            final_k=3,
+        )
+
+        self.assertEqual(len(client.vector_stores.calls), 2)
+        self.assertEqual(results[0]["filename"], "work-rules.docx")
+        self.assertEqual(results[0]["ranks"], {"canonical": 1, "alternative_1": 1})
+        self.assertEqual(
+            source_filenames(results),
+            ["work-rules.docx", "safety-2.docx", "safety.docx"],
+        )
+        self.assertIn("No smoking at work.", format_evidence(results))
+
+    def test_search_requests_overlap_before_rrf(self):
+        barrier = Barrier(3)
+
+        class ConcurrentVectorStores:
+            def search(self, **kwargs):
+                barrier.wait(timeout=2)
+                return SimpleNamespace(
+                    data=[
+                        hit(
+                            kwargs["query"],
+                            f"{kwargs['query']}.docx",
+                            f"Evidence for {kwargs['query']}",
+                        )
+                    ]
+                )
+
+        results = search_and_fuse(
+            SimpleNamespace(vector_stores=ConcurrentVectorStores()),
+            "vs_test",
+            [("q1", "one"), ("q2", "two"), ("q3", "three")],
+            per_query=1,
+            final_k=3,
+        )
+        self.assertEqual(len(results), 3)
+
+
+if __name__ == "__main__":
+    unittest.main()

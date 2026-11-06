@@ -1,0 +1,93 @@
+"""Fast, local precheck for request types this document assistant declines."""
+
+import re
+import unicodedata
+
+
+SALARY_AMOUNT = re.compile(
+    r"(?:"
+    r"\b(?:salary (?:of|for|amount)|pay (?:range|band|scale)|"
+    r"compensation (?:of|for|amount)|(?:how much|what (?:is|'s|does))"
+    r".{0,50}(?:salary|compensation|earn|make|get paid))\b"
+    r"|\b(?:salary|compensation|pay)\b.{0,35}\b(?:how much|amount|range|band|of|for)\b"
+    r"|\b(?:цалин(?:гийн|гаа|ы)?|цалин)\s*.{0,30}(?:хэд|дүн|хэмжээ|шатлал|түвшин|төгрөг)\b"
+    r"|\b(?:how much|salary|pay)\b.{0,35}\b(?:engineer|manager|position|employee|role)\b"
+    r"|\b(?:tsalin(?:giin|gaa)?|tsalinii)\b.{0,35}\b(?:hed|hemjee|dun|tugrug)\b"
+    r")",
+    re.IGNORECASE,
+)
+
+DOCUMENT_CONTEXT = re.compile(
+    r"(?:\b(?:document|uploaded file|file|article|paper|report|source)\b"
+    r"|баримт|оруулсан файл|өгүүлэл|тайлан|эх сурвалж)",
+    re.IGNORECASE,
+)
+DOCUMENT_EXPLANATION = re.compile(
+    r"(?:\b(?:explain|describe|summari[sz]e|what does .{0,60} mean|"
+    r"what does .{0,60} do)\b|тайлбарла|утгыг нь хэл|юу гэсэн|юу хийдэг)",
+    re.IGNORECASE,
+)
+CODE_CREATION = re.compile(
+    r"(?:\b(?:write|generate|create|build|implement|fix|debug|complete)\b"
+    r".{0,60}\b(?:code|program|script|function|class)\b"
+    r"|\b(?:code|program|script)\b.{0,60}\b(?:write|generate|create|build|fix|debug)\b"
+    r"|код\s*(?:бич|зохио|гарга|зас|дуусга)|программ\s*(?:бич|зохио|зас)|"
+    r"алдааг\s*(?:зас|олж))",
+    re.IGNORECASE,
+)
+PROGRAMMING_TOPIC = re.compile(
+    r"(?:\b(?:programming|coding|code|pointer|java|python|javascript|typescript|"
+    r"sql|algorithm|compiler|syntax|class|loop|function)\b|(?<!\w)c\+\+(?!\w)|(?<!\w)c#(?!\w)"
+    r"|программчлал|програмчлал|код|заагч|алгоритм|компайлер|синтакс)",
+    re.IGNORECASE,
+)
+
+MATH_REQUEST = re.compile(
+    r"(?:\b(?:solve|calculate|evaluate|simplify|prove|derive)\b"
+    r".{0,70}\b(?:equation|problem|expression|formula|integral|derivative|math)\b"
+    r"|\b(?:solve|calculate|evaluate|simplify|prove|derive)\s+(?:for\s+)?[a-z0-9(]"
+    r"|\b(?:what is|explain|define)\b.{0,60}\b(?:algebra|calculus|derivative|integral|matrix|theorem|equation|geometry|probability|statistics)\b"
+    r"|\b(?:what is|how (?:do i|to) calculate|calculate|find)\b.{0,50}\b(?:sum|average|mean|total|product)\b"
+    r"|\b(?:sum|average|mean|product)\s+of\s+(?:\w+|[a-z0-9])\b"
+    r"|математикийн\s+бодлого|тэгшитгэл\s+(?:бод|шийд)|бодлогыг\s+бод|"
+    r"бодож\s+өг|тооцоолж\s+өг|"
+    r"(?:математик|алгебр|геометр|интеграл|дериватив|теорем|магадлал|статистик)"
+    r".{0,30}(?:тайлбарла|гэж юу|бод|шийд))",
+    re.IGNORECASE,
+)
+
+REFUSALS = {
+    "salary": (
+        "Уучлаарай, компанийн журмын дагуу цалингийн дүн, албан тушаал тус бүрийн "
+        "цалин хөлсний мэдээлэл нууцын зэрэглэлтэй тул би энэ мэдээллийг өгөх "
+        "боломжгүй. Өөрийн цалингийн дэлгэрэнгүйг хүний нөөц эсвэл санхүүгийн "
+        "албанаас лавлана уу."
+    ),
+    "programming": (
+        "Уучлаарай, би код бичих/засах эсвэл програмчлалын ерөнхий асуултад "
+        "туслах боломжгүй."
+    ),
+    "math": "Уучлаарай, би баримтаас тусдаа математикийн бодлого бодож өгөх боломжгүй.",
+}
+
+
+def precheck_query(query: str) -> tuple[str, str] | None:
+    """Return (status, refusal) for restricted requests, otherwise None."""
+    text = unicodedata.normalize("NFC", " ".join(query.split()))
+    if SALARY_AMOUNT.search(text):
+        return "salary", REFUSALS["salary"]
+
+    # Permit explanation of material explicitly located in an uploaded source,
+    # but never permit requests to create, complete, or debug code.
+    source_explanation = (
+        DOCUMENT_CONTEXT.search(text)
+        and DOCUMENT_EXPLANATION.search(text)
+        and not CODE_CREATION.search(text)
+    )
+    if CODE_CREATION.search(text):
+        return "programming", REFUSALS["programming"]
+    if PROGRAMMING_TOPIC.search(text) and not source_explanation:
+        return "programming", REFUSALS["programming"]
+    if MATH_REQUEST.search(text) and not source_explanation:
+        return "math", REFUSALS["math"]
+    return None
