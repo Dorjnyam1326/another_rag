@@ -1,6 +1,6 @@
 import unittest
 
-from query_precheck import precheck_query
+from query_precheck import is_salary_schedule_question, precheck_query
 
 
 class QueryPrecheckTests(unittest.TestCase):
@@ -9,8 +9,20 @@ class QueryPrecheckTests(unittest.TestCase):
         self.assertEqual(precheck_query("How much does a systems engineer earn?")[0], "salary")
         self.assertEqual(precheck_query("minii tsalin hed we?")[0], "salary")
         self.assertIsNone(precheck_query("Цалин хэзээ буух вэ?"))
+        self.assertIsNone(precheck_query("tsalin hezee buudag we"))
+        self.assertIsNone(precheck_query("энэ сарын цалин хэдэнд буух вэ?"))
         self.assertIsNone(precheck_query("When is payday this month?"))
+        self.assertEqual(precheck_query("Цалин хэдэн төгрөг вэ?")[0], "salary")
         self.assertIsNone(precheck_query("энэ баримтад ямар жимс дурдсан бэ?"))
+
+    def test_salary_schedule_override_does_not_allow_amount_questions(self):
+        self.assertTrue(is_salary_schedule_question("tsalin hezee buudag we"))
+        self.assertTrue(is_salary_schedule_question("энэ сарын цалин хэдэнд буух вэ?"))
+        self.assertTrue(is_salary_schedule_question("When is payday this month?"))
+        self.assertFalse(is_salary_schedule_question("миний цалин хэд вэ?"))
+        self.assertFalse(
+            is_salary_schedule_question("Цалин хэдэн төгрөг вэ, энэ сард хэдэнд буух вэ?")
+        )
 
     def test_prechecks_code_creation_and_math_but_defers_concepts_to_router(self):
         # The contextual router classifies programming concepts so references

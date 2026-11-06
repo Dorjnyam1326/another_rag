@@ -11,9 +11,19 @@ SALARY_AMOUNT = re.compile(
     r"compensation (?:of|for|amount)|(?:how much|what (?:is|'s|does))"
     r".{0,50}(?:salary|compensation|earn|make|get paid))\b"
     r"|\b(?:salary|compensation|pay)\b.{0,35}\b(?:how much|amount|range|band|of|for)\b"
-    r"|\b(?:цалин(?:гийн|гаа|ы)?|цалин)\s*.{0,30}(?:хэд|дүн|хэмжээ|шатлал|түвшин|төгрөг)\b"
+    r"|\b(?:цалин(?:гийн|гаа|ы)?|цалин)\s*.{0,30}(?:хэд\b|дүн\b|хэмжээ\b|шатлал\b|түвшин\b|төгрөг\w*)"
     r"|\b(?:how much|salary|pay)\b.{0,35}\b(?:engineer|manager|position|employee|role)\b"
-    r"|\b(?:tsalin(?:giin|gaa)?|tsalinii)\b.{0,35}\b(?:hed|hemjee|dun|tugrug)\b"
+    r"|\b(?:tsalin(?:giin|gaa)?|tsalinii)\b.{0,35}\b(?:hed\b|hemjee\b|dun\b|tugrug\w*)"
+    r")",
+    re.IGNORECASE,
+)
+SALARY_SCHEDULE = re.compile(
+    r"(?:"
+    r"\b(?:payday|pay day)\b"
+    r"|\bwhen\b.{0,35}\b(?:salary|pay|wage|payroll)\b"
+    r"|\b(?:salary|pay|wage|payroll)\b.{0,35}\b(?:when|paid|deposit(?:ed)?)\b"
+    r"|(?:цалин\w*|цалинг\w*).{0,50}(?:хэзээ|хэдэнд).{0,40}(?:буух|бууд|олгогд|авах|орох)"
+    r"|(?:tsalin\w*|tsalinii).{0,50}(?:hezee|hedend).{0,40}(?:buuh|buud|olgo|avah|oroh)"
     r")",
     re.IGNORECASE,
 )
@@ -54,6 +64,12 @@ REFUSALS = {
     module_id: module["refusal"]
     for module_id, module in RESTRICTION_MODULES.items()
 }
+
+
+def is_salary_schedule_question(query: str) -> bool:
+    """Identify pay-date questions, excluding any that also ask for an amount."""
+    text = unicodedata.normalize("NFC", " ".join(query.split()))
+    return bool(SALARY_SCHEDULE.search(text) and not SALARY_AMOUNT.search(text))
 
 def precheck_query(
     query: str,

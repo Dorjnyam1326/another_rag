@@ -44,7 +44,12 @@ class FakeResponses:
         is_follow_up = bool(payload["recent_conversation"])
         active_ids = {item["id"] for item in payload["active_restrictions"]}
         matched_restrictions = []
+        is_salary_schedule = current_question.casefold() == "tsalin hezee buudag we"
         if current_question == "salary router restriction" and "salary" in active_ids:
+            matched_restrictions = ["salary"]
+        elif is_salary_schedule and "salary" in active_ids:
+            # Simulate the model's false positive; the deterministic app guard
+            # must still allow document retrieval for a payday question.
             matched_restrictions = ["salary"]
         elif current_question.casefold() == "what is a pointer in c++?" and "programming" in active_ids:
             matched_restrictions = ["programming"]
@@ -56,22 +61,30 @@ class FakeResponses:
         interaction_type = (
             "reaction" if is_reaction else "reply" if is_follow_up else "question"
         )
-        query = (
-            "\u0417\u0430\u0445\u0438\u0440\u043b\u0443\u0443\u0434\u044b\u043d "
-            "\u0445\u0443\u0440\u043b\u044b\u043d \u0436\u0443\u0440\u0430\u043c\u0434 "
-            "\u04e9\u04e9\u0440 \u044e\u0443 \u0434\u0443\u0440\u0434\u0441\u0430\u043d "
-            "\u0431\u0430\u0439\u0434\u0430\u0433 \u0432\u044d?"
-            if is_follow_up
-            else "\u0417\u0430\u0445\u0438\u0440\u043b\u0443\u0443\u0434\u044b\u043d "
-            "\u0445\u0443\u0440\u0430\u043b \u0445\u044d\u0437\u044d\u044d "
-            "\u0431\u043e\u043b\u0434\u043e\u0433 \u0432\u044d?"
-        )
+        if is_salary_schedule:
+            query = "Цалин хэзээ буудаг вэ?"
+            intent = "Цалин олгох хуваарь"
+        elif is_follow_up:
+            query = (
+                "\u0417\u0430\u0445\u0438\u0440\u043b\u0443\u0443\u0434\u044b\u043d "
+                "\u0445\u0443\u0440\u043b\u044b\u043d \u0436\u0443\u0440\u0430\u043c\u0434 "
+                "\u04e9\u04e9\u0440 \u044e\u0443 \u0434\u0443\u0440\u0434\u0441\u0430\u043d "
+                "\u0431\u0430\u0439\u0434\u0430\u0433 \u0432\u044d?"
+            )
+            intent = "Захирлуудын хурлын мэдээлэл"
+        else:
+            query = (
+                "\u0417\u0430\u0445\u0438\u0440\u043b\u0443\u0443\u0434\u044b\u043d "
+                "\u0445\u0443\u0440\u0430\u043b \u0445\u044d\u0437\u044d\u044d "
+                "\u0431\u043e\u043b\u0434\u043e\u0433 \u0432\u044d?"
+            )
+            intent = "Захирлуудын хурлын мэдээлэл"
         requests = []
         if interaction_type != "reaction":
             search_documents = current_question.casefold() != "ehnii ni"
             requests = [
                 {
-                    "intent": "Захирлуудын хурлын мэдээлэл",
+                    "intent": intent,
                     "canonical_query": query,
                     "search_documents": search_documents,
                     "is_ambiguous": False,
@@ -373,6 +386,32 @@ class AppFollowupTests(unittest.TestCase):
         self.assertEqual(FakeResponses.calls, [])
         self.assertEqual(FakeVectorStores.calls, 0)
         self.assertEqual(FakeChatOpenAI.calls, [])
+
+    def test_router_salary_false_positive_does_not_block_payday_search(self):
+        FakeOpenAI.turn = 0
+        FakeVectorStores.calls = 0
+        FakeResponses.calls = []
+        FakeChatOpenAI.calls = []
+        env = {
+            "OPENAI_API_KEY": "test-key",
+            "OPENAI_VECTOR_STORE_ID": "vs_test",
+        }
+
+        with (
+            patch.dict(os.environ, env),
+            patch("openai.OpenAI", FakeOpenAI),
+            patch("langchain_openai.ChatOpenAI", FakeChatOpenAI),
+        ):
+            app = AppTest.from_file(Path(__file__).resolve().parents[1] / "app.py").run()
+            app.segmented_control[0].set_value("Chat").run()
+            app.chat_input[0].set_value("tsalin hezee buudag we").run()
+            self.assertFalse(app.exception)
+
+        assistant = app.session_state["messages"][-1]
+        self.assertNotIn("restriction_module", assistant)
+        self.assertNotIn("restriction_status", assistant)
+        self.assertTrue(assistant["retrieval_performed"])
+        self.assertGreater(FakeVectorStores.calls, 0)
 
     def test_restriction_switch_changes_precheck_and_router_configuration(self):
         FakeOpenAI.turn = 0

@@ -21,6 +21,7 @@ from multi_query_retrieval import (
     source_filenames,
 )
 from query_precheck import precheck_query
+from query_precheck import is_salary_schedule_question
 from query_normalizer import normalize_query
 from query_rewriter import (
     QueryRewriteError,
@@ -485,6 +486,8 @@ def render_chat(
                             st.session_state.summary_message_count = recent_start
                             conversation_summary = rewrite_plan["conversation_summary"]
                         matched = rewrite_plan.get("matched_restrictions", [])
+                        if is_salary_schedule_question(prompt):
+                            matched = [item for item in matched if item != "salary"]
                         if matched:
                             restriction_module = matched[0]
                             messages[-1]["restriction_module"] = restriction_module

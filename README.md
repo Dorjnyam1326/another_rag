@@ -44,7 +44,7 @@ The app is local at `http://localhost:8501`. The chat UI runs on your computer, 
 
 ## Dashboard
 
-Use the **Dashboard / Chat** switch to see the chat or a session overview. The dashboard reports question and answer counts, input/output token totals (including query rewriting), an estimated model-token cost for supported models, citation-bearing answers, per-answer token usage, and recent questions. It also shows whether the API key and Vector Store ID are configured without displaying their values, and whether multi-query search is enabled. The contextual router also runs when document search is off, but it does not call the Vector Store.
+Use the **Dashboard / Chat** switch to see the chat or a session overview. The dashboard reports question and answer counts, input/output token totals (including query rewriting), an estimated model-token cost for supported models, citation-bearing answers, per-answer token usage, and recent questions. It also shows whether the API key and Vector Store ID are configured without displaying their values, and whether multi-query search is enabled. 
 
 These metrics come only from the current Streamlit session. They reset when the session is cleared or expires; the dashboard does not show fabricated sample data or verify live API connectivity. To preserve metrics across sessions later, store each question, answer, usage record, and citations in PostgreSQL, then load those records for the dashboard.
 
