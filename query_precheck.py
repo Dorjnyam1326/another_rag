@@ -24,7 +24,36 @@ SALARY_SCHEDULE = re.compile(
     r"|\b(?:salary|pay|wage|payroll)\b.{0,35}\b(?:when|paid|deposit(?:ed)?)\b"
     r"|(?:цалин\w*|цалинг\w*).{0,50}(?:хэзээ|хэдэнд).{0,40}(?:буух|бууд|олгогд|авах|орох)"
     r"|(?:tsalin\w*|tsalinii).{0,50}(?:hezee|hedend).{0,40}(?:buuh|buud|olgo|avah|oroh)"
+    r"|(?:цалин\w*|цалинг\w*).{0,70}(?:амралтын өдөр|баярын өдөр)"
+    r".{0,40}(?:таар|болбол|тохиолд|буувал|олговол)"
+    r"|(?:tsalin\w*|tsalinii).{0,70}(?:amraltiin udur|bayriin udur)"
+    r".{0,40}(?:taar|bolbol|tohiold|buubal|olgovol)"
+    r"|\bwhat happens if\b.{0,35}\b(?:payday|pay date|salary date)\b"
+    r".{0,40}\b(?:holiday|weekend)\b"
+    r"|\b(?:payday|pay date|salary date)\b.{0,40}\b(?:holiday|weekend)\b"
     r")",
+    re.IGNORECASE,
+)
+SALARY_PROCESS = re.compile(
+    r"(?:"
+    r"\b(?:how|when)\b.{0,50}\b(?:request|ask for|get|apply for)\b"
+    r".{0,40}\b(?:salary|pay|compensation)\b.{0,40}\b(?:increase|raise|review)\b"
+    r"|\b(?:salary|pay|compensation)\b.{0,40}\b(?:increase|raise|review)\b"
+    r".{0,50}\b(?:request|process|procedure|how|when)\b"
+    r"|(?:цалин\w*|цалинг\w*).{0,60}(?:нэмүүл|нэмэгдүүл|нэмэх|нэмэгд)"
+    r".{0,60}(?:яаж|хэрхэн|хэзээ|журам|хүсэлт|процесс)?"
+    r"|(?:цалин\w*|цалинг\w*).{0,60}(?:яаж|хэрхэн|хэзээ)"
+    r".{0,60}(?:нэмүүл|нэмэгдүүл|нэмэх|нэмэгд)"
+    r"|(?:tsalin\w*|tsalinii).{0,60}(?:nemuul|nemegde|nemeh|increase|raise)"
+    r".{0,70}(?:yaj|yaaj|hezee|huselt|jural|process)?"
+    r"|(?:tsalin\w*|tsalinii).{0,60}(?:yaj|yaaj|hezee)"
+    r".{0,60}(?:nemuul|nemegde|nemeh)"
+    r")",
+    re.IGNORECASE,
+)
+SALARY_CHANGE_AMOUNT = re.compile(
+    r"(?:\d[\d,.]*\s*(?:₮|төгрөг\w*|мянга\w*|сая\w*|%|хувиар|хувь\w*|percent\b)"
+    r"|\b(?:хэдээр|хэдэн хувь|by how much|what percentage)\b)",
     re.IGNORECASE,
 )
 
@@ -71,6 +100,16 @@ def is_salary_schedule_question(query: str) -> bool:
     text = unicodedata.normalize("NFC", " ".join(query.split()))
     return bool(SALARY_SCHEDULE.search(text) and not SALARY_AMOUNT.search(text))
 
+
+def is_salary_process_question(query: str) -> bool:
+    """Allow salary-review procedure questions that do not request an amount."""
+    text = unicodedata.normalize("NFC", " ".join(query.split()))
+    return bool(
+        SALARY_PROCESS.search(text)
+        and not SALARY_AMOUNT.search(text)
+        and not SALARY_CHANGE_AMOUNT.search(text)
+    )
+
 def precheck_query(
     query: str,
     enabled_modules=None,
@@ -78,7 +117,10 @@ def precheck_query(
     """Return (status, refusal) for restricted requests, otherwise None."""
     text = unicodedata.normalize("NFC", " ".join(query.split()))
     enabled = set(active_restriction_ids(enabled_modules))
-    if "salary" in enabled and SALARY_AMOUNT.search(text):
+    asks_for_salary_amount = SALARY_AMOUNT.search(text) or (
+        SALARY_PROCESS.search(text) and SALARY_CHANGE_AMOUNT.search(text)
+    )
+    if "salary" in enabled and asks_for_salary_amount:
         return "salary", REFUSALS["salary"]
 
     # Permit explanation of material explicitly located in an uploaded source,

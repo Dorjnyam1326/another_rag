@@ -2,6 +2,7 @@ from datetime import datetime
 import json
 import os
 from pathlib import Path
+from time import perf_counter
 from zoneinfo import ZoneInfo
 
 import streamlit as st
@@ -14,14 +15,18 @@ from chat_shortcuts import (
     simple_greeting_response,
     simple_reaction_response,
 )
+from conversation_export import conversation_json
 from multi_query_retrieval import (
     build_intent_query_groups,
     format_evidence,
     search_intent_groups,
     source_filenames,
 )
-from query_precheck import precheck_query
-from query_precheck import is_salary_schedule_question
+from query_precheck import (
+    is_salary_process_question,
+    is_salary_schedule_question,
+    precheck_query,
+)
 from query_normalizer import normalize_query
 from query_rewriter import (
     QueryRewriteError,
@@ -124,13 +129,91 @@ def extract_answer(message):
     return "\n".join(text_parts).strip(), sources
 
 
+def format_chat_metrics(usage, timing_ms):
+    captions = []
+    if usage:
+        caption = f"Нийт token: {usage['input']} оролт · {usage['output']} гаралт"
+        rewrite_input = usage.get(
+            "rewrite_input", usage.get("normalizer_input", 0)
+        )
+        rewrite_output = usage.get(
+            "rewrite_output", usage.get("normalizer_output", 0)
+        )
+        if rewrite_input or rewrite_output:
+            caption += (
+                f" · Хэвийнжүүлэлт / Query rewrite: {rewrite_input} оролт, "
+                f"{rewrite_output} гаралт"
+            )
+        if "estimated_cost" in usage:
+            caption += f" · model-ийн ойролцоо үнэ ${usage['estimated_cost']:.6f}"
+        captions.append(caption)
+
+    if timing_ms:
+        stages = [f"нийт {timing_ms['total_ms']:,} ms"]
+        if timing_ms.get("rewrite_ms") is not None:
+            stages.append(f"rewrite {timing_ms['rewrite_ms']:,} ms")
+        if timing_ms.get("retrieval_ms") is None:
+            stages.append("Vector Store хайлт хийгдээгүй")
+        else:
+            stages.append(f"Vector Store хайлт {timing_ms['retrieval_ms']:,} ms")
+        if timing_ms.get("model_ms") is None:
+            stages.append("model дуудлага хийгдээгүй")
+        else:
+            stages.append(f"model {timing_ms['model_ms']:,} ms")
+        captions.append("Хугацаа: " + " · ".join(stages))
+
+    return " · ".join(captions)
+
+
 def session_metrics(messages):
-    questions = [
-        item["content"]
-        for item in messages
-        if item["role"] == "user"
-        and item.get("interaction_type") not in {"greeting", "reaction", "acknowledgment"}
-    ]
+    questions = []
+    question_rows = []
+    for index, item in enumerate(messages):
+        if item["role"] != "user" or item.get("interaction_type") in {
+            "greeting",
+            "reaction",
+            "acknowledgment",
+        }:
+            continue
+        questions.append(item["content"])
+
+        answer = None
+        for candidate in messages[index + 1 :]:
+            if candidate["role"] == "user":
+                break
+            if candidate["role"] == "assistant":
+                answer = candidate
+                break
+
+        usage = (answer or {}).get("usage") or {}
+        timing = (answer or {}).get("timing_ms") or {}
+        has_usage = bool(usage)
+        total_input = usage.get("input") if has_usage else None
+        total_output = usage.get("output") if has_usage else None
+        question_rows.append(
+            {
+                "Асуулт": item["content"],
+                "Оролтын token": total_input,
+                "Гаралтын token": total_output,
+                "Нийт token": (
+                    total_input + total_output
+                    if total_input is not None and total_output is not None
+                    else None
+                ),
+                "Rewrite оролтын token": usage.get("rewrite_input") if has_usage else None,
+                "Rewrite гаралтын token": usage.get("rewrite_output") if has_usage else None,
+                "Нийт хугацаа (ms)": timing.get("total_ms"),
+                "Rewrite (ms)": timing.get("rewrite_ms"),
+                "Vector Store хайлт (ms)": (
+                    timing.get("retrieval_ms")
+                    if timing and timing.get("retrieval_ms") is not None
+                    else "Хийгээгүй" if timing else None
+                ),
+                "Model (ms)": timing.get("model_ms"),
+                "Ойролцоо зардал ($)": usage.get("estimated_cost") if has_usage else None,
+            }
+        )
+
     answers = [item for item in messages if item["role"] == "assistant"]
     usage = [item.get("usage") or {} for item in answers]
     input_tokens = sum(item.get("input", 0) for item in usage)
@@ -139,6 +222,7 @@ def session_metrics(messages):
     cited_answers = sum(bool(item.get("sources")) for item in answers)
     return {
         "questions": questions,
+        "question_rows": question_rows,
         "answers": answers,
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
@@ -229,12 +313,58 @@ def render_dashboard(
     )
 
     st.subheader("Сүүлийн асуултууд")
-    recent_questions = metrics["questions"][-5:]
-    if recent_questions:
+    recent_rows = metrics["question_rows"][-5:]
+    if recent_rows:
+        time_columns = [
+            "Нийт хугацаа (ms)",
+            "Rewrite (ms)",
+            "Vector Store хайлт (ms)",
+            "Model (ms)",
+        ]
+        numeric_columns = [
+            "Оролтын token",
+            "Гаралтын token",
+            "Нийт token",
+            "Rewrite оролтын token",
+            "Rewrite гаралтын token",
+            "Нийт хугацаа (ms)",
+            "Rewrite (ms)",
+            "Vector Store хайлт (ms)",
+            "Model (ms)",
+            "Ойролцоо зардал ($)",
+        ]
+        totals = {}
+        for column in numeric_columns:
+            values = [
+                row[column]
+                for row in recent_rows
+                if isinstance(row.get(column), (int, float))
+            ]
+            totals[column] = sum(values) if values else None
+        if totals["Vector Store хайлт (ms)"] is None and any(
+            row["Vector Store хайлт (ms)"] == "Хийгээгүй" for row in recent_rows
+        ):
+            totals["Vector Store хайлт (ms)"] = "Хийгээгүй"
+        totals.update(
+            {
+                "Асуулт": f"Нийт (сүүлийн {len(recent_rows)} асуулт)",
+            }
+        )
+        display_rows = []
+        for index, row in enumerate(recent_rows, start=1):
+            display_row = {"№": str(index), **row}
+            for column in time_columns:
+                value = display_row[column]
+                if isinstance(value, (int, float)):
+                    display_row[column] = f"{value:,}"
+            display_rows.append(display_row)
+        for column in time_columns:
+            if isinstance(totals[column], (int, float)):
+                totals[column] = f"{totals[column]:,}"
         st.dataframe(
-            [{"№": index, "Асуулт": question} for index, question in enumerate(recent_questions, start=1)],
+            display_rows + [{"№": "Нийт", **totals}],
             hide_index=True,
-            alt="Одоогийн session-д асуусан сүүлийн таван асуулт",
+            alt="Сүүлийн таван асуултын token, хугацаа, зардал болон нийлбэр",
         )
     else:
         st.info("Одоогийн session-д асуулт алга. Чат хэсэгт асуулт тавьж эхлээрэй.")
@@ -268,23 +398,13 @@ def render_chat(
                     )
                     st.text(f"Шалгасан асуулт: {question}")
             st.markdown(message["content"])
-            if message.get("usage"):
-                usage = message["usage"]
-                caption = f"Нийт token: {usage['input']} оролт · {usage['output']} гаралт"
-                rewrite_input = usage.get(
-                    "rewrite_input", usage.get("normalizer_input", 0)
-                )
-                rewrite_output = usage.get(
-                    "rewrite_output", usage.get("normalizer_output", 0)
-                )
-                if rewrite_input or rewrite_output:
-                    caption += (
-                        f" · Хэвийнжүүлэлт / Query rewrite: {rewrite_input} оролт, "
-                        f"{rewrite_output} гаралт"
+            if message.get("usage") or message.get("timing_ms"):
+                st.caption(
+                    format_chat_metrics(
+                        message.get("usage"),
+                        message.get("timing_ms"),
                     )
-                if "estimated_cost" in usage:
-                    caption += f" · model-ийн ойролцоо үнэ ${usage['estimated_cost']:.6f}"
-                st.caption(caption)
+                )
             interaction_type = message.get("interaction_type")
             if interaction_type == "reply":
                 label = "өмнөх turn-д өгсөн хариу"
@@ -425,6 +545,12 @@ def render_chat(
         st.error(f".env файлд {', '.join(missing)} тохируулна уу.")
         return
 
+    turn_started = perf_counter()
+    stage_timings_ms = {
+        "rewrite_ms": None,
+        "retrieval_ms": None,
+        "model_ms": None,
+    }
     with st.chat_message("assistant"):
         answer = None
         sources = []
@@ -464,6 +590,7 @@ def render_chat(
                     timeout=20.0,
                     max_retries=1,
                 ) as retrieval_client:
+                    rewrite_started = perf_counter()
                     try:
                         rewrite_plan = rewrite_queries(
                             retrieval_client,
@@ -486,7 +613,10 @@ def render_chat(
                             st.session_state.summary_message_count = recent_start
                             conversation_summary = rewrite_plan["conversation_summary"]
                         matched = rewrite_plan.get("matched_restrictions", [])
-                        if is_salary_schedule_question(prompt):
+                        if (
+                            is_salary_schedule_question(prompt)
+                            or is_salary_process_question(prompt)
+                        ):
                             matched = [item for item in matched if item != "salary"]
                         if matched:
                             restriction_module = matched[0]
@@ -561,6 +691,10 @@ def render_chat(
                             ]
                             should_retrieve_documents = search_documents
 
+                    stage_timings_ms["rewrite_ms"] = max(
+                        0, round((perf_counter() - rewrite_started) * 1000)
+                    )
+
                     if (
                         rewrite_plan
                         and interaction_type != "reaction"
@@ -609,12 +743,16 @@ def render_chat(
                             ),
                             state="running",
                         )
+                        retrieval_started = perf_counter()
                         retrieved = search_intent_groups(
                             retrieval_client,
                             vector_store_id,
                             query_groups,
                             per_query=SEARCH_RESULTS_PER_QUERY,
                             final_k=FUSED_CONTEXT_RESULTS,
+                        )
+                        stage_timings_ms["retrieval_ms"] = max(
+                            0, round((perf_counter() - retrieval_started) * 1000)
                         )
 
                 response = None
@@ -693,7 +831,11 @@ def render_chat(
                         "When calculating a scheduled date from retrieved rules, distinguish "
                         "weekends from public holidays; do not assume an unavailable holiday calendar."
                     )
+                    model_started = perf_counter()
                     response = chat.invoke([("system", turn_prompt), *history])
+                    stage_timings_ms["model_ms"] = max(
+                        0, round((perf_counter() - model_started) * 1000)
+                    )
                     answer, annotated_sources = extract_answer(response)
                 answer_text = answer or ""
                 evidence_for_answer = [*retrieved, *previous_evidence]
@@ -749,6 +891,10 @@ def render_chat(
                             + rewrite_output * (rewrite_prices[1] if rewrite_prices else 0)
                         ) / 1_000_000
                         usage_record["estimated_cost"] = estimated_cost
+                timing_record = {
+                    **stage_timings_ms,
+                    "total_ms": max(0, round((perf_counter() - turn_started) * 1000)),
+                }
             except Exception as exc:
                 status.update(label="Хүсэлт амжилтгүй", state="error")
                 request_error = exc
@@ -779,20 +925,10 @@ def render_chat(
                 )
             elif rewrite_plan and search_documents and not multi_query_search:
                 st.caption("Асуултыг хэвийнжүүлсэн; нэмэлт query хувилбар хайх унтраалттай.")
-            if usage_record:
-                caption = (
-                    f"Нийт token: {usage_record['input']} оролт · "
-                    f"{usage_record['output']} гаралт"
-                )
-                if usage_record["rewrite_input"] or usage_record["rewrite_output"]:
-                    caption += (
-                        f" · Хэвийнжүүлэлт / Query rewrite: {usage_record['rewrite_input']} оролт, "
-                        f"{usage_record['rewrite_output']} гаралт"
-                    )
-                if "estimated_cost" in usage_record:
-                    caption += f" · model-ийн ойролцоо үнэ ${usage_record['estimated_cost']:.6f}"
-                elif rewrite_error:
-                    caption += " · query rewrite дуудлагын зардлыг тооцоогүй"
+            caption = format_chat_metrics(usage_record, timing_record)
+            if rewrite_error:
+                caption += " · query rewrite дуудлагын зардлыг тооцоогүй"
+            if caption:
                 st.caption(caption)
             if search_documents and retrieval_queries:
                 st.caption(
@@ -808,6 +944,7 @@ def render_chat(
                 "content": answer,
                 "sources": sources,
                 "usage": usage_record,
+                "timing_ms": timing_record,
                 "retrieval_queries": retrieval_queries,
                 "retrieval_performed": bool(search_documents and should_retrieve_documents),
                 "interaction_type": interaction_type,
@@ -870,6 +1007,15 @@ with st.sidebar:
             restriction_id: st.session_state[f"restriction_{restriction_id}"]
             for restriction_id in RESTRICTION_MODULES
         }
+    )
+    st.download_button(
+        "Яриаг JSON-ээр татах",
+        data=conversation_json(st.session_state.messages),
+        file_name="rag-chat-conversation.json",
+        mime="application/json",
+        disabled=not st.session_state.messages,
+        width="stretch",
+        help="Одоогийн session-ийн асуулт, хариулт, эх сурвалж болон token мэдээллийг татна.",
     )
     if st.button("Яриаг цэвэрлэх", key="clear_conversation", width="stretch"):
         st.session_state.messages.clear()

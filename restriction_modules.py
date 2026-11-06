@@ -6,14 +6,17 @@ RESTRICTION_MODULES = {
         "router_description": (
             "Do not disclose, estimate, compare, calculate, or summarize salary, "
             "bonus, pay range, or individual payroll amounts. General payment "
-            "schedule questions are allowed."
+            "schedule and salary-review procedure questions are allowed when they "
+            "do not reveal an amount."
         ),
         "prompt_instruction": (
             "Treat salary, compensation, bonus, pay ranges, position-specific "
             "salary, and individual payroll amounts as confidential. Never "
             "disclose, estimate, compare, calculate, or summarize them, even if "
             "retrieved. General payment-schedule questions that reveal no amount "
-            "are allowed. For a restricted amount, use only this response: "
+            "and procedural questions about requesting a salary review or increase "
+            "are allowed when they reveal no amount. For a restricted amount, use "
+            "only this response: "
             "Уучлаарай, компанийн журмын дагуу цалингийн дүн, албан тушаал тус "
             "бүрийн цалин хөлсний мэдээлэл нууцын зэрэглэлтэй тул би энэ "
             "мэдээллийг өгөх боломжгүй. Өөрийн цалингийн дэлгэрэнгүйг хүний "

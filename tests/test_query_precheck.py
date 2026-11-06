@@ -1,6 +1,10 @@
 import unittest
 
-from query_precheck import is_salary_schedule_question, precheck_query
+from query_precheck import (
+    is_salary_process_question,
+    is_salary_schedule_question,
+    precheck_query,
+)
 
 
 class QueryPrecheckTests(unittest.TestCase):
@@ -18,10 +22,37 @@ class QueryPrecheckTests(unittest.TestCase):
     def test_salary_schedule_override_does_not_allow_amount_questions(self):
         self.assertTrue(is_salary_schedule_question("tsalin hezee buudag we"))
         self.assertTrue(is_salary_schedule_question("энэ сарын цалин хэдэнд буух вэ?"))
+        self.assertTrue(
+            is_salary_schedule_question("Цалин буух өдөр амралтын өдөр таарвал яадаг вэ?")
+        )
+        self.assertTrue(
+            is_salary_schedule_question(
+                "tsalin buuh udur amraltiin udur taarval yah ve"
+            )
+        )
         self.assertTrue(is_salary_schedule_question("When is payday this month?"))
+        self.assertTrue(
+            is_salary_schedule_question("What happens if payday falls on a holiday?")
+        )
         self.assertFalse(is_salary_schedule_question("миний цалин хэд вэ?"))
         self.assertFalse(
             is_salary_schedule_question("Цалин хэдэн төгрөг вэ, энэ сард хэдэнд буух вэ?")
+        )
+
+    def test_salary_raise_procedure_is_allowed_but_amounts_are_not(self):
+        for query in (
+            "tsalingaa hezee yaj nemuuldeg ym bol",
+            "цалингаа яаж нэмүүлэх вэ?",
+            "How do I request a salary increase?",
+        ):
+            with self.subTest(query=query):
+                self.assertTrue(is_salary_process_question(query))
+                self.assertIsNone(precheck_query(query))
+        self.assertFalse(
+            is_salary_process_question("цалингаа 10 хувиар яаж нэмүүлэх вэ?")
+        )
+        self.assertEqual(
+            precheck_query("цалингаа 10 хувиар яаж нэмүүлэх вэ?")[0], "salary"
         )
 
     def test_prechecks_code_creation_and_math_but_defers_concepts_to_router(self):

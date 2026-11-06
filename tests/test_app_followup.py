@@ -45,11 +45,19 @@ class FakeResponses:
         active_ids = {item["id"] for item in payload["active_restrictions"]}
         matched_restrictions = []
         is_salary_schedule = current_question.casefold() == "tsalin hezee buudag we"
+        is_salary_holiday_rule = (
+            current_question == "Цалин буух өдөр амралтын өдөр таарвал яадаг вэ?"
+        )
+        is_salary_process = (
+            current_question.casefold() == "tsalingaa hezee yaj nemuuldeg ym bol"
+        )
         if current_question == "salary router restriction" and "salary" in active_ids:
             matched_restrictions = ["salary"]
-        elif is_salary_schedule and "salary" in active_ids:
+        elif (is_salary_schedule or is_salary_holiday_rule) and "salary" in active_ids:
             # Simulate the model's false positive; the deterministic app guard
             # must still allow document retrieval for a payday question.
+            matched_restrictions = ["salary"]
+        elif is_salary_process and "salary" in active_ids:
             matched_restrictions = ["salary"]
         elif current_question.casefold() == "what is a pointer in c++?" and "programming" in active_ids:
             matched_restrictions = ["programming"]
@@ -61,9 +69,15 @@ class FakeResponses:
         interaction_type = (
             "reaction" if is_reaction else "reply" if is_follow_up else "question"
         )
-        if is_salary_schedule:
+        if is_salary_holiday_rule:
+            query = "Цалин олгох өдөр амралтын өдөртэй давхцвал ямар журамтай вэ?"
+            intent = "Амралтын өдөртэй давхцсан цалин олгох хуваарь"
+        elif is_salary_schedule:
             query = "Цалин хэзээ буудаг вэ?"
             intent = "Цалин олгох хуваарь"
+        elif is_salary_process:
+            query = "Цалин нэмүүлэх хүсэлтийг ямар журмаар гаргадаг вэ?"
+            intent = "Цалин нэмүүлэх хүсэлтийн журам"
         elif is_follow_up:
             query = (
                 "\u0417\u0430\u0445\u0438\u0440\u043b\u0443\u0443\u0434\u044b\u043d "
@@ -139,6 +153,42 @@ class FakeChatOpenAI:
 
 
 class AppFollowupTests(unittest.TestCase):
+    def test_dashboard_recent_questions_include_tokens_and_latency_totals(self):
+        FakeOpenAI.turn = 0
+        FakeVectorStores.calls = 0
+        FakeResponses.calls = []
+        FakeChatOpenAI.calls = []
+        env = {
+            "OPENAI_API_KEY": "test-key",
+            "OPENAI_VECTOR_STORE_ID": "vs_test",
+        }
+
+        with (
+            patch.dict(os.environ, env),
+            patch("openai.OpenAI", FakeOpenAI),
+            patch("langchain_openai.ChatOpenAI", FakeChatOpenAI),
+        ):
+            app = AppTest.from_file(Path(__file__).resolve().parents[1] / "app.py").run()
+            app.segmented_control[0].set_value("Chat").run()
+            app.toggle[1].set_value(False).run()
+            app.chat_input[0].set_value("zahiraluudiin hural hezee boldog we").run()
+            self.assertFalse(app.exception)
+            app.segmented_control[0].set_value("Dashboard").run()
+            self.assertFalse(app.exception)
+
+        table = app.dataframe[0].value
+        self.assertIn("Оролтын token", table.columns)
+        self.assertIn("Нийт token", table.columns)
+        self.assertIn("Rewrite оролтын token", table.columns)
+        self.assertIn("Нийт хугацаа (ms)", table.columns)
+        self.assertIn("Vector Store хайлт (ms)", table.columns)
+        self.assertIn("Model (ms)", table.columns)
+        self.assertEqual(table.iloc[0]["Асуулт"], "zahiraluudiin hural hezee boldog we")
+        self.assertEqual(table.iloc[-1]["Асуулт"], "Нийт (сүүлийн 1 асуулт)")
+        self.assertEqual(table.iloc[-1]["Нийт token"], table.iloc[0]["Нийт token"])
+        elapsed_ms = int(str(table.iloc[0]["Нийт хугацаа (ms)"]).replace(",", ""))
+        self.assertGreaterEqual(elapsed_ms, 0)
+
     def test_structured_rewrite_failure_uses_normalized_query_fallback(self):
         FakeOpenAI.turn = 0
         FakeVectorStores.calls = 0
@@ -178,6 +228,19 @@ class AppFollowupTests(unittest.TestCase):
         self.assertEqual(assistant["usage"]["rewrite_input"], 31)
         self.assertEqual(assistant["usage"]["rewrite_output"], 14)
         self.assertEqual(assistant["rewrite_failure"], "ValueError")
+        timings = assistant["timing_ms"]
+        self.assertEqual(
+            set(timings), {"rewrite_ms", "retrieval_ms", "model_ms", "total_ms"}
+        )
+        self.assertTrue(all(value >= 0 for value in timings.values()))
+        self.assertTrue(
+            any(
+                "Хугацаа: нийт" in item.value
+                and "Vector Store хайлт" in item.value
+                and "model" in item.value
+                for item in app.caption
+            )
+        )
         self.assertTrue(
             any(
                 "хэвийнжүүлж Vector Store-оос хайлаа" in item.value
@@ -405,6 +468,60 @@ class AppFollowupTests(unittest.TestCase):
             app = AppTest.from_file(Path(__file__).resolve().parents[1] / "app.py").run()
             app.segmented_control[0].set_value("Chat").run()
             app.chat_input[0].set_value("tsalin hezee buudag we").run()
+            self.assertFalse(app.exception)
+
+        assistant = app.session_state["messages"][-1]
+        self.assertNotIn("restriction_module", assistant)
+        self.assertNotIn("restriction_status", assistant)
+        self.assertTrue(assistant["retrieval_performed"])
+        self.assertGreater(FakeVectorStores.calls, 0)
+
+    def test_router_salary_false_positive_does_not_block_holiday_schedule_search(self):
+        FakeOpenAI.turn = 0
+        FakeVectorStores.calls = 0
+        FakeResponses.calls = []
+        FakeChatOpenAI.calls = []
+        env = {
+            "OPENAI_API_KEY": "test-key",
+            "OPENAI_VECTOR_STORE_ID": "vs_test",
+        }
+
+        with (
+            patch.dict(os.environ, env),
+            patch("openai.OpenAI", FakeOpenAI),
+            patch("langchain_openai.ChatOpenAI", FakeChatOpenAI),
+        ):
+            app = AppTest.from_file(Path(__file__).resolve().parents[1] / "app.py").run()
+            app.segmented_control[0].set_value("Chat").run()
+            app.chat_input[0].set_value(
+                "Цалин буух өдөр амралтын өдөр таарвал яадаг вэ?"
+            ).run()
+            self.assertFalse(app.exception)
+
+        assistant = app.session_state["messages"][-1]
+        self.assertNotIn("restriction_module", assistant)
+        self.assertNotIn("restriction_status", assistant)
+        self.assertTrue(assistant["retrieval_performed"])
+        self.assertGreater(FakeVectorStores.calls, 0)
+
+    def test_router_salary_false_positive_does_not_block_raise_process_search(self):
+        FakeOpenAI.turn = 0
+        FakeVectorStores.calls = 0
+        FakeResponses.calls = []
+        FakeChatOpenAI.calls = []
+        env = {
+            "OPENAI_API_KEY": "test-key",
+            "OPENAI_VECTOR_STORE_ID": "vs_test",
+        }
+
+        with (
+            patch.dict(os.environ, env),
+            patch("openai.OpenAI", FakeOpenAI),
+            patch("langchain_openai.ChatOpenAI", FakeChatOpenAI),
+        ):
+            app = AppTest.from_file(Path(__file__).resolve().parents[1] / "app.py").run()
+            app.segmented_control[0].set_value("Chat").run()
+            app.chat_input[0].set_value("tsalingaa hezee yaj nemuuldeg ym bol").run()
             self.assertFalse(app.exception)
 
         assistant = app.session_state["messages"][-1]
