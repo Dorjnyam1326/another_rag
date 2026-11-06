@@ -494,6 +494,54 @@ class QueryRewriterTests(unittest.TestCase):
         self.assertEqual(conversation["current_question"], "holbogdoh juramiig ni tailbarlaad uguuch")
         self.assertEqual(conversation["recent_conversation"], history)
 
+    def test_router_receives_bounded_history_and_updates_summary_once(self):
+        response = FakeResponses(
+            {
+                "interaction_type": "question",
+                "is_follow_up": True,
+                "matched_restrictions": ["programming", "salary"],
+                "updated_summary": "Эхэнд автобус, дараа нь хөгжим ярьсан.",
+                "requests": [
+                    {
+                        "intent": "Өмнөх ярианы эхний сэдэв",
+                        "canonical_query": "Өмнөх ярианы эхний сэдэв юу байсан бэ?",
+                        "search_documents": False,
+                        "is_ambiguous": False,
+                        "alternatives": [],
+                    }
+                ],
+            }
+        )
+        history = [
+            {"role": "user", "content": f"turn {index}"}
+            for index in range(12)
+        ]
+        older = [{"role": "user", "content": "Анх автобусны талаар ярьсан."}]
+
+        result = rewrite_queries(
+            SimpleNamespace(responses=response),
+            "ehnii ni yu bilee",
+            history=history,
+            conversation_summary="Өмнөх сэдвүүдийн товч санамж.",
+            unsummarized_history=older,
+            active_restrictions={"salary"},
+        )
+
+        payload = json.loads(response.kwargs["input"])
+        self.assertEqual(payload["recent_conversation"], history[-10:])
+        self.assertEqual(payload["conversation_to_summarize"], older)
+        self.assertEqual(payload["conversation_summary"], "Өмнөх сэдвүүдийн товч санамж.")
+        self.assertEqual(
+            [item["id"] for item in payload["active_restrictions"]],
+            ["salary"],
+        )
+        self.assertEqual(result["matched_restrictions"], ["salary"])
+        self.assertEqual(
+            result["conversation_summary"],
+            "Эхэнд автобус, дараа нь хөгжим ярьсан.",
+        )
+        self.assertTrue(result["summary_updated"])
+
     def test_latest_completed_turn_ignores_older_topics_and_unanswered_prompt(self):
         messages = [
             {"role": "user", "content": "employee rights"},

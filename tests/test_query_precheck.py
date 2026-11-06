@@ -12,8 +12,10 @@ class QueryPrecheckTests(unittest.TestCase):
         self.assertIsNone(precheck_query("When is payday this month?"))
         self.assertIsNone(precheck_query("энэ баримтад ямар жимс дурдсан бэ?"))
 
-    def test_blocks_standalone_programming_and_math(self):
-        self.assertEqual(precheck_query("What is a pointer in C++?")[0], "programming")
+    def test_prechecks_code_creation_and_math_but_defers_concepts_to_router(self):
+        # The contextual router classifies programming concepts so references
+        # to document material or the assistant itself are not blocked by keywords.
+        self.assertIsNone(precheck_query("What is a pointer in C++?"))
         self.assertEqual(
             precheck_query("Can you write Java code to sum odd numbers?")[0],
             "programming",
@@ -35,6 +37,30 @@ class QueryPrecheckTests(unittest.TestCase):
     def test_allows_unrelated_general_questions(self):
         self.assertIsNone(precheck_query("How do I plant tomatoes?"))
         self.assertIsNone(precheck_query("What is a fruit?"))
+
+    def test_each_restriction_can_be_disabled_independently(self):
+        self.assertIsNone(
+            precheck_query("системийн инженерийн цалин хэд вэ?", {"programming", "math"})
+        )
+        self.assertEqual(
+            precheck_query(
+                "Can you write Java code to sum odd numbers?", {"programming"}
+            )[0],
+            "programming",
+        )
+        self.assertIsNone(
+            precheck_query("Solve 2x + 3 = 7", {"salary", "programming"})
+        )
+        self.assertIsNone(
+            precheck_query(
+                "Can you write Java code to sum odd numbers?", {"salary", "math"}
+            )
+        )
+
+    def test_allows_meta_question_about_the_assistant_even_when_code_is_enabled(self):
+        self.assertIsNone(
+            precheck_query("код талаасаа чи өөрийгөө яаж засах байсан бэ?")
+        )
 
 
 if __name__ == "__main__":

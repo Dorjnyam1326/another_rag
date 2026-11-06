@@ -40,8 +40,19 @@ class FakeResponses:
         FakeOpenAI.turn += 1
         payload = json.loads(kwargs["input"])
         current_question = payload["current_question"]
-        is_reaction = current_question.casefold() == "hhhha"
+        is_reaction = current_question.casefold() in {"hhhha", "хмм"}
         is_follow_up = bool(payload["recent_conversation"])
+        active_ids = {item["id"] for item in payload["active_restrictions"]}
+        matched_restrictions = []
+        if current_question == "salary router restriction" and "salary" in active_ids:
+            matched_restrictions = ["salary"]
+        elif current_question.casefold() == "what is a pointer in c++?" and "programming" in active_ids:
+            matched_restrictions = ["programming"]
+        updated_summary = (
+            "Эхэнд автобусны тухай, дараа нь хурлын тухай ярьсан."
+            if payload["conversation_to_summarize"]
+            else ""
+        )
         interaction_type = (
             "reaction" if is_reaction else "reply" if is_follow_up else "question"
         )
@@ -71,6 +82,8 @@ class FakeResponses:
             {
                 "interaction_type": interaction_type,
                 "is_follow_up": is_follow_up,
+                "matched_restrictions": matched_restrictions,
+                "updated_summary": updated_summary,
                 "requests": requests,
             },
             ensure_ascii=False,
@@ -98,12 +111,14 @@ class FakeOpenAI:
 
 class FakeChatOpenAI:
     calls = []
+    system_prompts = []
 
     def __init__(self, **kwargs):
         pass
 
     def invoke(self, messages):
         self.calls.append(messages[-1]["content"])
+        self.system_prompts.append(messages[0][1])
         return SimpleNamespace(
             content="meeting.docx: previous answer context",
             usage_metadata={"input_tokens": 20, "output_tokens": 5},
@@ -232,9 +247,11 @@ class AppFollowupTests(unittest.TestCase):
 
         reaction = app.session_state["messages"][-1]
         self.assertEqual(reaction["interaction_type"], "reaction")
+        self.assertEqual(reaction["shortcut"], "local_reaction")
         self.assertEqual(reaction["retrieval_queries"], [])
         self.assertEqual(FakeVectorStores.calls, 1)
-        self.assertEqual(FakeChatOpenAI.calls[-1], "hhhha")
+        self.assertEqual(len(FakeResponses.calls), 1)
+        self.assertEqual(len(FakeChatOpenAI.calls), 1)
 
     def test_contextual_reply_can_use_previous_evidence_without_a_new_search(self):
         FakeOpenAI.turn = 0
@@ -256,14 +273,53 @@ class AppFollowupTests(unittest.TestCase):
             app.toggle[1].set_value(False).run()
             app.chat_input[0].set_value("zahiraluudiin hural hezee boldog we").run()
             self.assertFalse(app.exception)
+            app.chat_input[0].set_value("za oilgoloo").run()
+            self.assertFalse(app.exception)
             app.chat_input[0].set_value("ehnii ni").run()
             self.assertFalse(app.exception)
 
         reply = app.session_state["messages"][-1]
         self.assertEqual(reply["interaction_type"], "reply")
         self.assertEqual(reply["retrieval_queries"], [])
+        acknowledgment = next(
+            message
+            for message in app.session_state["messages"]
+            if message["role"] == "user"
+            and message.get("interaction_type") == "acknowledgment"
+        )
+        self.assertEqual(acknowledgment["content"], "za oilgoloo")
         self.assertEqual(FakeVectorStores.calls, 1)
-        self.assertIn("The directors meeting is weekly on Monday at 10:00.", FakeChatOpenAI.calls[-1])
+        self.assertEqual(len(FakeResponses.calls), 2)
+        self.assertIn(
+            "The directors meeting is weekly on Monday at 10:00.",
+            FakeChatOpenAI.calls[-1],
+        )
+
+    def test_router_classified_reaction_keeps_the_current_message_for_answering(self):
+        FakeOpenAI.turn = 0
+        FakeVectorStores.calls = 0
+        FakeResponses.calls = []
+        FakeChatOpenAI.calls = []
+        env = {"OPENAI_API_KEY": "test-key", "OPENAI_VECTOR_STORE_ID": "vs_test"}
+
+        with (
+            patch.dict(os.environ, env),
+            patch("openai.OpenAI", FakeOpenAI),
+            patch("langchain_openai.ChatOpenAI", FakeChatOpenAI),
+        ):
+            app = AppTest.from_file(Path(__file__).resolve().parents[1] / "app.py").run()
+            app.segmented_control[0].set_value("Chat").run()
+            app.toggle[1].set_value(False).run()
+            app.chat_input[0].set_value("zahiraluudiin hural hezee boldog we").run()
+            self.assertFalse(app.exception)
+            app.chat_input[0].set_value("хмм").run()
+            self.assertFalse(app.exception)
+
+        reaction = app.session_state["messages"][-1]
+        self.assertEqual(reaction["interaction_type"], "reaction")
+        self.assertEqual(reaction["retrieval_queries"], [])
+        self.assertEqual(FakeVectorStores.calls, 1)
+        self.assertEqual(FakeChatOpenAI.calls[-1], "хмм")
 
     def test_simple_greeting_skips_rewriter_retrieval_and_answer_model(self):
         FakeOpenAI.turn = 0
@@ -286,6 +342,186 @@ class AppFollowupTests(unittest.TestCase):
         self.assertEqual(FakeResponses.calls, [])
         self.assertEqual(FakeVectorStores.calls, 0)
         self.assertEqual(FakeChatOpenAI.calls, [])
+
+    def test_standalone_acknowledgment_does_not_get_an_echo_or_call_models(self):
+        FakeOpenAI.turn = 0
+        FakeVectorStores.calls = 0
+        FakeResponses.calls = []
+        FakeChatOpenAI.calls = []
+
+        with (
+            patch.dict(os.environ, {"OPENAI_API_KEY": "", "OPENAI_VECTOR_STORE_ID": ""}),
+            patch("openai.OpenAI", FakeOpenAI),
+            patch("langchain_openai.ChatOpenAI", FakeChatOpenAI),
+        ):
+            app = AppTest.from_file(Path(__file__).resolve().parents[1] / "app.py").run()
+            app.segmented_control[0].set_value("Chat").run()
+            app.chat_input[0].set_value("za oilgoloo").run()
+            self.assertFalse(app.exception)
+
+        self.assertEqual(len(app.session_state["messages"]), 2)
+        acknowledgment = app.session_state["messages"][0]
+        self.assertEqual(acknowledgment["interaction_type"], "acknowledgment")
+        self.assertEqual(acknowledgment["shortcut"], "local_acknowledgment")
+        local_reply = app.session_state["messages"][1]
+        self.assertEqual(
+            local_reply["interaction_type"], "local_acknowledgment_response"
+        )
+        self.assertEqual(
+            local_reply["content"], "За. Хэрэгтэй бол үргэлжлүүлээд асуугаарай."
+        )
+        self.assertEqual(FakeResponses.calls, [])
+        self.assertEqual(FakeVectorStores.calls, 0)
+        self.assertEqual(FakeChatOpenAI.calls, [])
+
+    def test_restriction_switch_changes_precheck_and_router_configuration(self):
+        FakeOpenAI.turn = 0
+        FakeVectorStores.calls = 0
+        FakeResponses.calls = []
+        FakeChatOpenAI.calls = []
+        env = {"OPENAI_API_KEY": "test-key", "OPENAI_VECTOR_STORE_ID": "vs_test"}
+
+        with (
+            patch.dict(os.environ, env),
+            patch("openai.OpenAI", FakeOpenAI),
+            patch("langchain_openai.ChatOpenAI", FakeChatOpenAI),
+        ):
+            app = AppTest.from_file(Path(__file__).resolve().parents[1] / "app.py").run()
+            app.segmented_control[0].set_value("Chat").run()
+            app.toggle[1].set_value(False).run()
+            app.checkbox(key="restriction_programming").uncheck().run()
+            app.chat_input[0].set_value("What is a pointer in C++?").run()
+            self.assertFalse(app.exception)
+            allowed = app.session_state["messages"][-1]
+            self.assertNotIn("restriction_module", allowed)
+            self.assertNotIn(
+                "Do not answer standalone programming questions",
+                FakeChatOpenAI.system_prompts[-1],
+            )
+            active = json.loads(FakeResponses.calls[-1]["input"])["active_restrictions"]
+            self.assertNotIn("programming", {item["id"] for item in active})
+
+            app.checkbox(key="restriction_programming").check().run()
+            app.chat_input[0].set_value("Can you write Java code to sum odd numbers?").run()
+            self.assertFalse(app.exception)
+
+        restricted = app.session_state["messages"][-1]
+        self.assertEqual(restricted["restriction_module"], "programming")
+        self.assertIn("Хязгаарласан", restricted["restriction_status"])
+        self.assertEqual(FakeVectorStores.calls, 1)
+
+    def test_router_restriction_shows_status_without_search_or_answer_call(self):
+        FakeOpenAI.turn = 0
+        FakeVectorStores.calls = 0
+        FakeResponses.calls = []
+        FakeChatOpenAI.calls = []
+        env = {"OPENAI_API_KEY": "test-key", "OPENAI_VECTOR_STORE_ID": "vs_test"}
+
+        with (
+            patch.dict(os.environ, env),
+            patch("openai.OpenAI", FakeOpenAI),
+            patch("langchain_openai.ChatOpenAI", FakeChatOpenAI),
+        ):
+            app = AppTest.from_file(Path(__file__).resolve().parents[1] / "app.py").run()
+            app.segmented_control[0].set_value("Chat").run()
+            app.toggle[1].set_value(False).run()
+            app.chat_input[0].set_value("salary router restriction").run()
+            self.assertFalse(app.exception)
+
+        restricted = app.session_state["messages"][-1]
+        self.assertEqual(restricted["restriction_module"], "salary")
+        self.assertIn("нууцын зэрэглэлтэй", restricted["content"])
+        self.assertEqual(FakeVectorStores.calls, 0)
+        self.assertEqual(FakeChatOpenAI.calls, [])
+
+    def test_standalone_programming_concept_is_restricted_by_contextual_router(self):
+        FakeOpenAI.turn = 0
+        FakeVectorStores.calls = 0
+        FakeResponses.calls = []
+        FakeChatOpenAI.calls = []
+        env = {"OPENAI_API_KEY": "test-key", "OPENAI_VECTOR_STORE_ID": "vs_test"}
+
+        with (
+            patch.dict(os.environ, env),
+            patch("openai.OpenAI", FakeOpenAI),
+            patch("langchain_openai.ChatOpenAI", FakeChatOpenAI),
+        ):
+            app = AppTest.from_file(Path(__file__).resolve().parents[1] / "app.py").run()
+            app.segmented_control[0].set_value("Chat").run()
+            app.toggle[1].set_value(False).run()
+            app.chat_input[0].set_value("What is a pointer in C++?").run()
+            self.assertFalse(app.exception)
+
+        restricted = app.session_state["messages"][-1]
+        self.assertEqual(restricted["restriction_module"], "programming")
+        self.assertEqual(FakeVectorStores.calls, 0)
+        self.assertEqual(FakeChatOpenAI.calls, [])
+
+    def test_router_runs_in_general_chat_without_vector_store_access(self):
+        FakeOpenAI.turn = 0
+        FakeVectorStores.calls = 0
+        FakeResponses.calls = []
+        FakeChatOpenAI.calls = []
+
+        with (
+            patch.dict(os.environ, {"OPENAI_API_KEY": "test-key", "OPENAI_VECTOR_STORE_ID": ""}),
+            patch("openai.OpenAI", FakeOpenAI),
+            patch("langchain_openai.ChatOpenAI", FakeChatOpenAI),
+        ):
+            app = AppTest.from_file(Path(__file__).resolve().parents[1] / "app.py").run()
+            app.segmented_control[0].set_value("Chat").run()
+            app.toggle[0].set_value(False).run()
+            app.chat_input[0].set_value("How do I plant tomatoes?").run()
+            self.assertFalse(app.exception)
+
+        self.assertEqual(len(FakeResponses.calls), 1)
+        self.assertEqual(FakeVectorStores.calls, 0)
+        self.assertEqual(len(FakeChatOpenAI.calls), 1)
+
+    def test_clear_conversation_resets_summary_but_keeps_restriction_switches(self):
+        app = AppTest.from_file(Path(__file__).resolve().parents[1] / "app.py").run()
+        app.checkbox(key="restriction_programming").uncheck().run()
+        app.session_state["conversation_summary"] = "Өмнөх сэдвүүд."
+        app.session_state["summary_message_count"] = 8
+        app.button(key="clear_conversation").click().run()
+
+        self.assertFalse(app.exception)
+        self.assertEqual(app.session_state["conversation_summary"], "")
+        self.assertEqual(app.session_state["summary_message_count"], 0)
+        self.assertFalse(app.session_state["restriction_programming"])
+
+    def test_older_session_topic_is_summarized_and_available_to_followup(self):
+        FakeOpenAI.turn = 0
+        FakeVectorStores.calls = 0
+        FakeResponses.calls = []
+        FakeChatOpenAI.calls = []
+        FakeChatOpenAI.system_prompts = []
+        env = {"OPENAI_API_KEY": "test-key", "OPENAI_VECTOR_STORE_ID": "vs_test"}
+
+        with (
+            patch.dict(os.environ, env),
+            patch("openai.OpenAI", FakeOpenAI),
+            patch("langchain_openai.ChatOpenAI", FakeChatOpenAI),
+        ):
+            app = AppTest.from_file(Path(__file__).resolve().parents[1] / "app.py").run()
+            app.segmented_control[0].set_value("Chat").run()
+            app.toggle[1].set_value(False).run()
+            for index in range(7):
+                app.chat_input[0].set_value(f"Хурлын мэдээлэл {index}").run()
+                self.assertFalse(app.exception)
+
+            self.assertIn("автобусны тухай", app.session_state["conversation_summary"])
+            seventh_payload = json.loads(FakeResponses.calls[6]["input"])
+            self.assertEqual(len(seventh_payload["conversation_to_summarize"]), 2)
+            self.assertEqual(len(seventh_payload["recent_conversation"]), 10)
+
+            app.chat_input[0].set_value("ehnii ni").run()
+            self.assertFalse(app.exception)
+
+        eighth_payload = json.loads(FakeResponses.calls[7]["input"])
+        self.assertTrue(eighth_payload["conversation_summary"])
+        self.assertIn("## Older conversation context", FakeChatOpenAI.system_prompts[-1])
+        self.assertEqual(FakeVectorStores.calls, 7)
 
 
 if __name__ == "__main__":

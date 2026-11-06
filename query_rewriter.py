@@ -5,9 +5,11 @@ import re
 import unicodedata
 
 from query_normalizer import CYRILLIC_LETTER, clean_text
+from restriction_modules import active_restriction_ids, active_restriction_modules
 
 REWRITE_INSTRUCTIONS = """
-Understand the user's current message together with the supplied recent conversation.
+Understand the current message with the supplied summary, recent turns, and any
+older turns that have not yet been summarized.
 Return a structured query plan. Do not answer the user.
 
 Rules:
@@ -51,6 +53,14 @@ Rules:
   A reaction has no request for information; return an empty requests array.
 - Set is_follow_up=true when the message depends on the immediately previous
   completed turn. Never let older unrelated topics override the latest turn.
+- Compare the current message and context with only the active restriction
+  modules supplied in the input. Return only IDs that clearly apply. Do not
+  restrict keyword mentions, document-grounded explanation, or meta questions
+  about the chatbot itself unless an active module explicitly covers them.
+- Update the compact conversation summary only from the existing summary and
+  older turns supplied for summarization. Preserve topic order, names, user
+  preferences, and unresolved references. Do not convert prior assistant claims
+  into facts. If no older turns are supplied, return an empty updated_summary.
 - Use Mongolian Cyrillic for generated Mongolian text. Preserve Latin words only
   when they are proper names, acronyms, or identifiers present in the current
   message or recent conversation. Never insert characters from another writing
@@ -83,6 +93,12 @@ REWRITE_FORMAT = {
                 "enum": ["question", "reply", "reaction"],
             },
             "is_follow_up": {"type": "boolean"},
+            "matched_restrictions": {
+                "type": "array",
+                "maxItems": 3,
+                "items": {"type": "string"},
+            },
+            "updated_summary": {"type": "string"},
             "requests": {
                 "type": "array",
                 "maxItems": 8,
@@ -110,7 +126,13 @@ REWRITE_FORMAT = {
                 },
             },
         },
-        "required": ["interaction_type", "is_follow_up", "requests"],
+        "required": [
+            "interaction_type",
+            "is_follow_up",
+            "matched_restrictions",
+            "updated_summary",
+            "requests",
+        ],
         "additionalProperties": False,
     },
 }
@@ -188,6 +210,7 @@ def build_normalized_fallback_plan(
     normalized_query: str,
     usage: dict | None = None,
     history: list[dict] | None = None,
+    conversation_summary: str = "",
 ) -> dict:
     """Build a single safe retrieval request after structured rewriting fails."""
     original = clean_text(query)
@@ -215,6 +238,8 @@ def build_normalized_fallback_plan(
         ],
         "interaction_type": "question",
         "is_follow_up": False,
+        "matched_restrictions": [],
+        "conversation_summary": conversation_summary,
         "usage": {
             "input_tokens": (usage or {}).get("input_tokens", 0),
             "output_tokens": (usage or {}).get("output_tokens", 0),
@@ -247,7 +272,7 @@ def _mongolian_text(value: str, allowed_latin_source: str) -> bool:
 
 
 def latest_completed_turn(messages: list[dict]) -> list[dict]:
-    """Return the last adjacent user/assistant pair before a new prompt."""
+    """Return the latest substantive adjacent user/assistant pair before a prompt."""
     previous_messages = (
         messages[:-1]
         if messages and messages[-1].get("role") == "user"
@@ -258,6 +283,19 @@ def latest_completed_turn(messages: list[dict]) -> list[dict]:
             previous_messages[index].get("role") == "assistant"
             and previous_messages[index - 1].get("role") == "user"
         ):
+            if any(
+                item.get("interaction_type")
+                in {
+                    "greeting",
+                    "reaction",
+                    "acknowledgment",
+                    "local_acknowledgment_response",
+                }
+                or item.get("shortcut")
+                in {"local_greeting", "local_reaction", "local_acknowledgment"}
+                for item in previous_messages[index - 1 : index + 1]
+            ):
+                continue
             return previous_messages[index - 1 : index + 1]
     return []
 
@@ -268,6 +306,9 @@ def rewrite_queries(
     history: list[dict] | None = None,
     model: str = "gpt-4o-mini",
     include_alternatives: bool = True,
+    conversation_summary: str = "",
+    unsummarized_history: list[dict] | None = None,
+    active_restrictions=None,
 ) -> dict:
     """Normalize a message and split it into independent retrieval requests."""
     original = clean_text(query)
@@ -276,11 +317,29 @@ def rewrite_queries(
             "role": item.get("role", "user"),
             "content": clean_text(item.get("content", ""))[:1200],
         }
-        for item in (history or [])[-4:]
+        for item in (history or [])[-10:]
         if item.get("content")
     ]
+    older_context = [
+        {
+            "role": item.get("role", "user"),
+            "content": clean_text(item.get("content", ""))[:1200],
+        }
+        for item in (unsummarized_history or [])
+        if item.get("content")
+    ]
+    active_modules = active_restriction_modules(active_restrictions)
     payload = json.dumps(
-        {"recent_conversation": context, "current_question": original},
+        {
+            "conversation_summary": conversation_summary,
+            "recent_conversation": context,
+            "conversation_to_summarize": older_context,
+            "active_restrictions": [
+                {"id": item["id"], "description": item["router_description"]}
+                for item in active_modules
+            ],
+            "current_question": original,
+        },
         ensure_ascii=False,
     )
     instructions = REWRITE_INSTRUCTIONS
@@ -288,6 +347,8 @@ def rewrite_queries(
     if not include_alternatives:
         instructions += "\n\nReturn an empty alternatives array for every request."
         max_output_tokens = 350
+    if older_context:
+        max_output_tokens += 250
 
     response = client.responses.create(
         model=model,
@@ -307,6 +368,25 @@ def rewrite_queries(
     interaction_type = result.get("interaction_type")
     is_follow_up = result.get("is_follow_up")
     raw_requests = result.get("requests")
+    raw_restrictions = result.get("matched_restrictions", [])
+    if not isinstance(raw_restrictions, list):
+        raise QueryRewriteError("Query rewrite returned invalid restriction IDs.")
+    enabled_ids = set(active_restriction_ids(active_restrictions))
+    matched_restrictions = list(
+        dict.fromkeys(
+            item
+            for item in raw_restrictions
+            if isinstance(item, str) and item in enabled_ids
+        )
+    )
+    raw_summary = result.get("updated_summary", "")
+    if not isinstance(raw_summary, str):
+        raise QueryRewriteError("Query rewrite returned an invalid conversation summary.")
+    updated_summary = (
+        clean_text(raw_summary)[:1200]
+        if raw_summary.strip()
+        else conversation_summary
+    )
     if interaction_type not in {"question", "reply", "reaction"}:
         raise QueryRewriteError("Query rewrite returned an invalid interaction type.")
     if not isinstance(is_follow_up, bool):
@@ -319,7 +399,14 @@ def rewrite_queries(
     elif not raw_requests:
         raise QueryRewriteError("A question or reply must contain at least one request.")
 
-    source_context = " ".join([original, *(item["content"] for item in context)])
+    source_context = " ".join(
+        [
+            original,
+            conversation_summary,
+            *(item["content"] for item in older_context),
+            *(item["content"] for item in context),
+        ]
+    )
     previous_turn = latest_completed_turn(context)
     requests = []
     alternative_candidates = []
@@ -458,6 +545,9 @@ def rewrite_queries(
         "requests": requests,
         "interaction_type": interaction_type,
         "is_follow_up": is_follow_up,
+        "matched_restrictions": matched_restrictions,
+        "conversation_summary": updated_summary,
+        "summary_updated": bool(raw_summary.strip() and older_context),
         "usage": {
             "input_tokens": getattr(usage, "input_tokens", 0) if usage else 0,
             "output_tokens": getattr(usage, "output_tokens", 0) if usage else 0,

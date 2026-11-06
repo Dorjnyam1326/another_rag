@@ -24,9 +24,10 @@ Rules:
   Example: with recent context about annual leave,
   "leave request form ni хаана бга вэ? link өгөөч" ->
   "Жилийн ээлжийн амралтын хүсэлтийн маягт хаана байна вэ? Холбоос өгөөч?".
-- When recent conversation is supplied, use only the immediately previous turn
-  to resolve an omitted subject in the current question. Do not copy the prior
-  answer into the query or add a request the user did not make.
+- Use the immediately previous turn first to resolve an omitted subject. Use
+  the compact older-conversation summary only if the user refers to an earlier
+  topic or sequence. Do not copy prior answers into the query or add a request
+  the user did not make.
 - Keep the exact topic: ordinary monthly salary, bonus, leave pay, and today's
   date are different intents. Use salary-specific wording only when the input
   itself asks about salary; never introduce salary from another example or
@@ -67,6 +68,8 @@ def normalize_query(
     query: str,
     model: str = "gpt-4o-mini",
     history: list[dict] | None = None,
+    conversation_summary: str = "",
+    unsummarized_history: list[dict] | None = None,
 ) -> dict:
     """Convert Latin/English input to Cyrillic; Cyrillic input needs no model call."""
     original = clean_text(query)
@@ -75,10 +78,19 @@ def normalize_query(
             "role": item.get("role", "user"),
             "content": clean_text(item.get("content", ""))[:1200],
         }
-        for item in (history or [])[-2:]
+        for item in (history or [])[-10:]
         if item.get("content")
     ]
-    if not LATIN_LETTER.search(original) and not context:
+    older_context = [
+        {
+            "role": item.get("role", "user"),
+            "content": clean_text(item.get("content", ""))[:1200],
+        }
+        for item in (unsummarized_history or [])
+        if item.get("content")
+    ]
+    summary = " ".join(conversation_summary.split())[:1200]
+    if not LATIN_LETTER.search(original) and not context and not summary and not older_context:
         return {
             "original_query": original,
             "normalized_query": original,
@@ -88,14 +100,21 @@ def normalize_query(
 
     instructions = NORMALIZER_INSTRUCTIONS
     input_text = original
-    if context:
+    if context or summary or older_context:
         instructions += (
-            "\n\nThe input is JSON with recent_conversation and current_question. "
-            "Normalize only current_question, using only the latest completed "
-            "turn to resolve its subject. Return one standalone search question."
+            "\n\nThe input is JSON with conversation_summary, recent_conversation, "
+            "conversation_to_summarize, and current_question. Normalize only "
+            "current_question, using the latest completed turn first; use the "
+            "summary and older turns only for an explicit reference to an older "
+            "topic. Return one standalone search question."
         )
         input_text = json.dumps(
-            {"recent_conversation": context, "current_question": original},
+            {
+                "conversation_summary": summary,
+                "recent_conversation": context,
+                "conversation_to_summarize": older_context,
+                "current_question": original,
+            },
             ensure_ascii=False,
         )
 
@@ -112,7 +131,12 @@ def normalize_query(
             "Normalizer did not return a Mongolian Cyrillic query."
         )
     allowed_context = " ".join(
-        [original, *(item["content"] for item in context)]
+        [
+            original,
+            summary,
+            *(item["content"] for item in older_context),
+            *(item["content"] for item in context),
+        ]
     )
     allowed_latin = {
         token.casefold()

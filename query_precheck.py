@@ -3,6 +3,7 @@
 import re
 import unicodedata
 
+from restriction_modules import RESTRICTION_MODULES, active_restriction_ids
 
 SALARY_AMOUNT = re.compile(
     r"(?:"
@@ -35,13 +36,6 @@ CODE_CREATION = re.compile(
     r"алдааг\s*(?:зас|олж))",
     re.IGNORECASE,
 )
-PROGRAMMING_TOPIC = re.compile(
-    r"(?:\b(?:programming|coding|code|pointer|java|python|javascript|typescript|"
-    r"sql|algorithm|compiler|syntax|class|loop|function)\b|(?<!\w)c\+\+(?!\w)|(?<!\w)c#(?!\w)"
-    r"|программчлал|програмчлал|код|заагч|алгоритм|компайлер|синтакс)",
-    re.IGNORECASE,
-)
-
 MATH_REQUEST = re.compile(
     r"(?:\b(?:solve|calculate|evaluate|simplify|prove|derive)\b"
     r".{0,70}\b(?:equation|problem|expression|formula|integral|derivative|math)\b"
@@ -57,24 +51,18 @@ MATH_REQUEST = re.compile(
 )
 
 REFUSALS = {
-    "salary": (
-        "Уучлаарай, компанийн журмын дагуу цалингийн дүн, албан тушаал тус бүрийн "
-        "цалин хөлсний мэдээлэл нууцын зэрэглэлтэй тул би энэ мэдээллийг өгөх "
-        "боломжгүй. Өөрийн цалингийн дэлгэрэнгүйг хүний нөөц эсвэл санхүүгийн "
-        "албанаас лавлана уу."
-    ),
-    "programming": (
-        "Уучлаарай, би код бичих/засах эсвэл програмчлалын ерөнхий асуултад "
-        "туслах боломжгүй."
-    ),
-    "math": "Уучлаарай, би баримтаас тусдаа математикийн бодлого бодож өгөх боломжгүй.",
+    module_id: module["refusal"]
+    for module_id, module in RESTRICTION_MODULES.items()
 }
 
-
-def precheck_query(query: str) -> tuple[str, str] | None:
+def precheck_query(
+    query: str,
+    enabled_modules=None,
+) -> tuple[str, str] | None:
     """Return (status, refusal) for restricted requests, otherwise None."""
     text = unicodedata.normalize("NFC", " ".join(query.split()))
-    if SALARY_AMOUNT.search(text):
+    enabled = set(active_restriction_ids(enabled_modules))
+    if "salary" in enabled and SALARY_AMOUNT.search(text):
         return "salary", REFUSALS["salary"]
 
     # Permit explanation of material explicitly located in an uploaded source,
@@ -84,10 +72,8 @@ def precheck_query(query: str) -> tuple[str, str] | None:
         and DOCUMENT_EXPLANATION.search(text)
         and not CODE_CREATION.search(text)
     )
-    if CODE_CREATION.search(text):
+    if "programming" in enabled and CODE_CREATION.search(text):
         return "programming", REFUSALS["programming"]
-    if PROGRAMMING_TOPIC.search(text) and not source_explanation:
-        return "programming", REFUSALS["programming"]
-    if MATH_REQUEST.search(text) and not source_explanation:
+    if "math" in enabled and MATH_REQUEST.search(text) and not source_explanation:
         return "math", REFUSALS["math"]
     return None
