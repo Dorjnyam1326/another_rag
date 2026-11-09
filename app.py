@@ -23,6 +23,7 @@ from multi_query_retrieval import (
     source_filenames,
 )
 from query_precheck import (
+    is_leave_policy_question,
     is_salary_process_question,
     is_salary_schedule_question,
     precheck_query,
@@ -616,6 +617,7 @@ def render_chat(
                         if (
                             is_salary_schedule_question(prompt)
                             or is_salary_process_question(prompt)
+                            or is_leave_policy_question(prompt)
                         ):
                             matched = [item for item in matched if item != "salary"]
                         if matched:

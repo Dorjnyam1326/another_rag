@@ -57,6 +57,9 @@ Rules:
   modules supplied in the input. Return only IDs that clearly apply. Do not
   restrict keyword mentions, document-grounded explanation, or meta questions
   about the chatbot itself unless an active module explicitly covers them.
+  Apply a restriction only to information requested in the current turn. Do not
+  carry a restriction forward from an earlier topic when the user clearly
+  changes subjects (for example, from salary dates to New Year leave).
 - Update the compact conversation summary only from the existing summary and
   older turns supplied for summarization. Preserve topic order, names, user
   preferences, and unresolved references. Do not convert prior assistant claims

@@ -1,6 +1,7 @@
 import unittest
 
 from query_precheck import (
+    is_leave_policy_question,
     is_salary_process_question,
     is_salary_schedule_question,
     precheck_query,
@@ -54,6 +55,15 @@ class QueryPrecheckTests(unittest.TestCase):
         self.assertEqual(
             precheck_query("цалингаа 10 хувиар яаж нэмүүлэх вэ?")[0], "salary"
         )
+
+    def test_new_year_leave_question_is_distinguished_from_salary_restriction(self):
+        for query in (
+            "ene shine jileer amrah shinj bnu",
+            "Энэ шинэ жилээр амрах шинж байна уу?",
+        ):
+            with self.subTest(query=query):
+                self.assertTrue(is_leave_policy_question(query))
+                self.assertIsNone(precheck_query(query))
 
     def test_prechecks_code_creation_and_math_but_defers_concepts_to_router(self):
         # The contextual router classifies programming concepts so references

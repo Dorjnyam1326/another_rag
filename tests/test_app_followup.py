@@ -48,6 +48,9 @@ class FakeResponses:
         is_salary_holiday_rule = (
             current_question == "Цалин буух өдөр амралтын өдөр таарвал яадаг вэ?"
         )
+        is_new_year_leave = (
+            current_question.casefold() == "ene shine jileer amrah shinj bnu"
+        )
         is_salary_process = (
             current_question.casefold() == "tsalingaa hezee yaj nemuuldeg ym bol"
         )
@@ -56,6 +59,9 @@ class FakeResponses:
         elif (is_salary_schedule or is_salary_holiday_rule) and "salary" in active_ids:
             # Simulate the model's false positive; the deterministic app guard
             # must still allow document retrieval for a payday question.
+            matched_restrictions = ["salary"]
+        elif is_new_year_leave and "salary" in active_ids:
+            # Context can cause the router to carry the previous salary topic forward.
             matched_restrictions = ["salary"]
         elif is_salary_process and "salary" in active_ids:
             matched_restrictions = ["salary"]
@@ -496,6 +502,34 @@ class AppFollowupTests(unittest.TestCase):
             app.chat_input[0].set_value(
                 "Цалин буух өдөр амралтын өдөр таарвал яадаг вэ?"
             ).run()
+            self.assertFalse(app.exception)
+
+        assistant = app.session_state["messages"][-1]
+        self.assertNotIn("restriction_module", assistant)
+        self.assertNotIn("restriction_status", assistant)
+        self.assertTrue(assistant["retrieval_performed"])
+        self.assertGreater(FakeVectorStores.calls, 0)
+
+    def test_previous_salary_topic_does_not_block_new_year_leave_question(self):
+        FakeOpenAI.turn = 0
+        FakeVectorStores.calls = 0
+        FakeVectorStores.queries = []
+        FakeResponses.calls = []
+        FakeChatOpenAI.calls = []
+        env = {
+            "OPENAI_API_KEY": "test-key",
+            "OPENAI_VECTOR_STORE_ID": "vs_test",
+        }
+
+        with (
+            patch.dict(os.environ, env),
+            patch("openai.OpenAI", FakeOpenAI),
+            patch("langchain_openai.ChatOpenAI", FakeChatOpenAI),
+        ):
+            app = AppTest.from_file(Path(__file__).resolve().parents[1] / "app.py").run()
+            app.segmented_control[0].set_value("Chat").run()
+            app.chat_input[0].set_value("tsalin hezee buudag we").run()
+            app.chat_input[0].set_value("ene shine jileer amrah shinj bnu").run()
             self.assertFalse(app.exception)
 
         assistant = app.session_state["messages"][-1]

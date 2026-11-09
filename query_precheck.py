@@ -57,6 +57,12 @@ SALARY_CHANGE_AMOUNT = re.compile(
     re.IGNORECASE,
 )
 
+LATIN_NEW_YEAR_LEAVE_QUESTION = re.compile(
+    r"(?:ene\s*shine\s*jil.{0,40}(?:amrah|amral|chuluu|ajillah)"
+    r"|(?:amrah|amral|chuluu|ajillah).{0,40}ene\s*shine\s*jil)",
+    re.IGNORECASE,
+)
+
 DOCUMENT_CONTEXT = re.compile(
     r"(?:\b(?:document|uploaded file|file|article|paper|report|source)\b"
     r"|баримт|оруулсан файл|өгүүлэл|тайлан|эх сурвалж)",
@@ -109,6 +115,24 @@ def is_salary_process_question(query: str) -> bool:
         and not SALARY_AMOUNT.search(text)
         and not SALARY_CHANGE_AMOUNT.search(text)
     )
+
+
+def is_leave_policy_question(query: str) -> bool:
+    """Identify explicit New Year leave questions to avoid contextual salary leakage."""
+    text = unicodedata.normalize("NFC", " ".join(query.split())).casefold()
+    words = text.split()
+    has_cyrillic_new_year = "шинэ" in words and any(
+        word.startswith("жил") for word in words
+    )
+    has_cyrillic_leave = any(
+        word.startswith(("амр", "амра", "чөлөө", "ажиллах")) for word in words
+    )
+    has_latin_new_year = bool(LATIN_NEW_YEAR_LEAVE_QUESTION.search(text))
+    is_leave_question = (
+        has_cyrillic_new_year and has_cyrillic_leave
+    ) or has_latin_new_year
+    return bool(is_leave_question and not SALARY_AMOUNT.search(text))
+
 
 def precheck_query(
     query: str,
