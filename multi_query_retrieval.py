@@ -1,6 +1,7 @@
 """Search OpenAI Vector Store with query variants and fuse ranks using RRF."""
 
 from concurrent.futures import ThreadPoolExecutor
+from collections.abc import Mapping
 
 from query_normalizer import clean_text
 
@@ -36,6 +37,17 @@ def _text_content(match) -> str:
         if text:
             parts.append(text)
     return "\n".join(parts).strip()
+
+
+def _attributes(match) -> dict:
+    attributes = getattr(match, "attributes", None)
+    if not isinstance(attributes, Mapping):
+        return {}
+    return {
+        str(key)[:100]: value[:300] if isinstance(value, str) else value
+        for key, value in attributes.items()
+        if isinstance(value, (str, int, float, bool)) or value is None
+    }
 
 
 def _search_one(client, vector_store_id: str, variant: tuple[str, str], per_query: int):
@@ -90,6 +102,12 @@ def search_and_fuse(
                     "file_id": file_id,
                     "filename": filename,
                     "text": passage,
+                    "attributes": _attributes(match),
+                    "attributes_status": (
+                        "available"
+                        if isinstance(getattr(match, "attributes", None), Mapping)
+                        else "unavailable"
+                    ),
                     "rrf_score": 0.0,
                     "ranks": {},
                 },
@@ -204,6 +222,12 @@ def search_intent_groups(
                     "file_id": file_id,
                     "filename": filename,
                     "text": passage,
+                    "attributes": _attributes(match),
+                    "attributes_status": (
+                        "available"
+                        if isinstance(getattr(match, "attributes", None), Mapping)
+                        else "unavailable"
+                    ),
                     "rrf_score": 0.0,
                     "ranks": {},
                     "intents": [groups[group_index]["intent"]],

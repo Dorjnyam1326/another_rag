@@ -12,10 +12,11 @@ from multi_query_retrieval import (
 )
 
 
-def hit(file_id, filename, text):
+def hit(file_id, filename, text, attributes=None):
     return SimpleNamespace(
         file_id=file_id,
         filename=filename,
+        attributes=attributes,
         content=[SimpleNamespace(text=text)],
     )
 
@@ -31,6 +32,21 @@ class FakeVectorStores:
 
 
 class MultiQueryRetrievalTests(unittest.TestCase):
+    def test_search_preserves_small_scalar_file_attributes(self):
+        client = SimpleNamespace(
+            vector_stores=FakeVectorStores(
+                {"policy query": [hit("f1", "policy.docx", "Policy text", {"status": "draft", "year": 2026})]}
+            )
+        )
+        results = search_and_fuse(
+            client,
+            "vs_test",
+            [("canonical", "policy query")],
+        )
+
+        self.assertEqual(results[0]["attributes"], {"status": "draft", "year": 2026})
+        self.assertEqual(results[0]["attributes_status"], "available")
+
     def test_builds_distinct_original_canonical_and_alternative_queries(self):
         variants = build_query_variants(
             "ajil deer yu yu hiij boldoggui we",

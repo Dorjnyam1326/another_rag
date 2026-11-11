@@ -122,6 +122,43 @@ class QueryRewriterTests(unittest.TestCase):
         self.assertFalse(request["search_documents"])
         self.assertEqual(request["alternatives"], [])
 
+    def test_vague_followup_cannot_switch_remote_work_to_annual_leave(self):
+        response = FakeResponses(
+            {
+                "interaction_type": "question",
+                "is_follow_up": True,
+                "requests": [
+                    {
+                        "intent": "Ээлжийн амралтын хүсэлт",
+                        "canonical_query": "Ээлжийн амралтаар хоёр өдөр дараалан амарч болох уу?",
+                        "search_documents": True,
+                        "is_ambiguous": False,
+                        "alternatives": [],
+                    }
+                ],
+            }
+        )
+        result = rewrite_queries(
+            SimpleNamespace(responses=response),
+            "Хоёр өдөр дараалан хүсэлт гаргаж болох уу?",
+            history=[
+                {
+                    "role": "user",
+                    "content": "Гэрээсээ ажиллахын тулд ямар зөвшөөрөл авах хэрэгтэй вэ?",
+                },
+                {
+                    "role": "assistant",
+                    "content": "Гэрээсээ ажиллах зөвшөөрлийн талаар баримтаас мэдээлэл олдсонгүй.",
+                },
+            ],
+        )
+
+        request = result["requests"][0]
+        self.assertTrue(request["is_ambiguous"])
+        self.assertFalse(request["search_documents"])
+        self.assertIn("өмнөх сэдэвтэй зөрүүтэй", request["intent"])
+        self.assertIn("remote-work days", response.kwargs["instructions"])
+
     def test_company_leave_request_is_searched_even_if_model_marks_general(self):
         response = FakeResponses(
             {

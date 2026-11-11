@@ -75,6 +75,11 @@ Rules:
 - Context example: after asking how to request annual leave, "who approve hiideg
   yum?" means "Жилийн ээлжийн амралтын хүсэлтийг хэн батлах вэ?". Keep that
   subject, set is_follow_up=true, search_documents=true, and is_ambiguous=false.
+- Preserve the immediately previous user's topic even when the previous answer
+  found no document evidence. For example, after "Гэрээсээ ажиллахын тулд ямар
+  зөвшөөрөл авах хэрэгтэй вэ?", "Хоёр өдөр дараалан хүсэлт гаргаж болох уу?"
+  still refers to remote-work days, not annual leave. If the reference cannot be
+  resolved confidently, mark it ambiguous instead of substituting another policy.
 - Mixed-request example: "leave request yaj ogoh ve bas UB-d weather margaash
   yah bol?" contains two clear requests. Route the leave procedure to documents;
   route tomorrow's Ulaanbaatar weather to search_documents=false because live
@@ -160,6 +165,50 @@ _SPECIFIC_ROLE_MARKERS = (
     "хүний нөөц", "кадр", "удирдлага", "менежер", "захирал", "санхүү",
     "хэлтэс", "hr", "manager", "supervisor", "department",
 )
+_REMOTE_WORK_MARKERS = (
+    "гэрээсээ ажил",
+    "гэрээс ажил",
+    "зайнаас ажил",
+    "remote work",
+    "work from home",
+    "working from home",
+    "geresee ajil",
+)
+_ANNUAL_LEAVE_MARKERS = (
+    "ээлжийн амралт",
+    "жилийн амралт",
+    "annual leave",
+    "vacation",
+    "amraltiin huselt",
+)
+
+
+def _follow_up_topic_conflict(
+    query: str,
+    request_text: str,
+    *,
+    is_follow_up: bool,
+    previous_turn: list[dict],
+) -> bool:
+    """Detect a rewrite that switches remote work and annual leave topics."""
+    if not is_follow_up or not previous_turn:
+        return False
+
+    previous_query = clean_text(previous_turn[0].get("content", "")).casefold()
+    current_query = query.casefold()
+    candidate = request_text.casefold()
+    previous_remote = any(marker in previous_query for marker in _REMOTE_WORK_MARKERS)
+    previous_leave = any(marker in previous_query for marker in _ANNUAL_LEAVE_MARKERS)
+    current_remote = any(marker in current_query for marker in _REMOTE_WORK_MARKERS)
+    current_leave = any(marker in current_query for marker in _ANNUAL_LEAVE_MARKERS)
+    candidate_remote = any(marker in candidate for marker in _REMOTE_WORK_MARKERS)
+    candidate_leave = any(marker in candidate for marker in _ANNUAL_LEAVE_MARKERS)
+
+    return (
+        previous_remote and candidate_leave and not current_leave and not candidate_remote
+    ) or (
+        previous_leave and candidate_remote and not current_remote and not candidate_leave
+    )
 
 
 def _route_document_scope(
@@ -436,6 +485,16 @@ def rewrite_queries(
             # The intent is a display/routing label. A non-Cyrillic label must
             # not discard a valid normalized search query.
             intent = canonical_query
+
+        topic_conflict = _follow_up_topic_conflict(
+            original,
+            f"{intent} {canonical_query}",
+            is_follow_up=is_follow_up,
+            previous_turn=previous_turn,
+        )
+        if topic_conflict:
+            intent = "Тодруулах шаардлагатай: өмнөх сэдэвтэй зөрүүтэй байна"
+            is_ambiguous = True
 
         if is_ambiguous:
             search_documents = False

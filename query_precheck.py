@@ -63,6 +63,16 @@ LATIN_NEW_YEAR_LEAVE_QUESTION = re.compile(
     re.IGNORECASE,
 )
 
+EDUCATION_BENEFIT_QUESTION = re.compile(
+    r"(?:\b(?:tuition|training|certification|education)\b.{0,80}"
+    r"\b(?:fees?|cost|reimburse\w*|benefit|support|company pay\w*)\b"
+    r"|(?:сургалт\w*|сертификат\w*|хүүхэд\w*).{0,80}"
+    r"(?:төлбөр|зардал|нөхөн төлбөр|дэмжлэг|даах|буцаан олголт)"
+    r"|(?:surgalt\w*|sertifikat\w*|huuhed\w*).{0,80}"
+    r"(?:tulbur|zardal|demjleg|daah|nuHun|nohon|butsa\w*))",
+    re.IGNORECASE,
+)
+
 DOCUMENT_CONTEXT = re.compile(
     r"(?:\b(?:document|uploaded file|file|article|paper|report|source)\b"
     r"|баримт|оруулсан файл|өгүүлэл|тайлан|эх сурвалж)",
@@ -101,6 +111,22 @@ REFUSALS = {
 }
 
 
+def _is_composite_policy_request(text: str) -> bool:
+    """Let the semantic router split mixed questions before applying a restriction."""
+    has_connector = bool(
+        re.search(r"(?:\b(?:and|also|plus)\b|бас|мөн|тэгээд|\?)", text, re.IGNORECASE)
+    )
+    has_other_topic = bool(
+        re.search(
+            r"(?:ирц|хоцролт|хоцор\w*|амралт|чөлөө|зөвшөөрөл|сургалт|тэтгэмж|attendance|leave|"
+            r"remote work|work from home|benefit|training|it request)",
+            text,
+            re.IGNORECASE,
+        )
+    )
+    return has_connector and has_other_topic
+
+
 def is_salary_schedule_question(query: str) -> bool:
     """Identify pay-date questions, excluding any that also ask for an amount."""
     text = unicodedata.normalize("NFC", " ".join(query.split()))
@@ -134,6 +160,15 @@ def is_leave_policy_question(query: str) -> bool:
     return bool(is_leave_question and not SALARY_AMOUNT.search(text))
 
 
+def is_education_benefit_question(query: str) -> bool:
+    """Keep education-cost benefits out of the salary amount restriction."""
+    text = unicodedata.normalize("NFC", " ".join(query.split())).casefold()
+    return bool(
+        EDUCATION_BENEFIT_QUESTION.search(text)
+        and not SALARY_AMOUNT.search(text)
+    )
+
+
 def precheck_query(
     query: str,
     enabled_modules=None,
@@ -144,7 +179,11 @@ def precheck_query(
     asks_for_salary_amount = SALARY_AMOUNT.search(text) or (
         SALARY_PROCESS.search(text) and SALARY_CHANGE_AMOUNT.search(text)
     )
-    if "salary" in enabled and asks_for_salary_amount:
+    if (
+        "salary" in enabled
+        and asks_for_salary_amount
+        and not _is_composite_policy_request(text)
+    ):
         return "salary", REFUSALS["salary"]
 
     # Permit explanation of material explicitly located in an uploaded source,
@@ -159,3 +198,20 @@ def precheck_query(
     if "math" in enabled and MATH_REQUEST.search(text) and not source_explanation:
         return "math", REFUSALS["math"]
     return None
+
+
+def composite_restrictions(query: str, enabled_modules=None) -> list[str]:
+    """Find restricted subrequests in a mixed question without blocking its other intents."""
+    text = unicodedata.normalize("NFC", " ".join(query.split()))
+    enabled = set(active_restriction_ids(enabled_modules))
+    matched = []
+    asks_for_salary_amount = SALARY_AMOUNT.search(text) or (
+        SALARY_PROCESS.search(text) and SALARY_CHANGE_AMOUNT.search(text)
+    )
+    if (
+        "salary" in enabled
+        and asks_for_salary_amount
+        and _is_composite_policy_request(text)
+    ):
+        matched.append("salary")
+    return matched

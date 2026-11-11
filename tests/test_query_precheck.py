@@ -1,14 +1,24 @@
 import unittest
 
 from query_precheck import (
+    is_education_benefit_question,
     is_leave_policy_question,
     is_salary_process_question,
     is_salary_schedule_question,
+    composite_restrictions,
     precheck_query,
 )
 
 
 class QueryPrecheckTests(unittest.TestCase):
+    def test_mixed_salary_and_attendance_request_reaches_semantic_router(self):
+        query = (
+            "Өнөөдөр ажилдаа 1 цаг хоцорсон, үүнийг яаж бүртгүүлэх вэ, "
+            "бас энэ сарын миний цалин яг хэд болж орохыг тооцоод өгөөч?"
+        )
+        self.assertIsNone(precheck_query(query))
+        self.assertEqual(composite_restrictions(query), ["salary"])
+
     def test_blocks_salary_amount_but_allows_payday_schedule(self):
         self.assertEqual(precheck_query("системийн инженерийн цалин хэд вэ?")[0], "salary")
         self.assertEqual(precheck_query("How much does a systems engineer earn?")[0], "salary")
@@ -64,6 +74,21 @@ class QueryPrecheckTests(unittest.TestCase):
             with self.subTest(query=query):
                 self.assertTrue(is_leave_policy_question(query))
                 self.assertIsNone(precheck_query(query))
+
+    def test_education_benefits_do_not_match_salary_amount_restriction(self):
+        for query in (
+            "Huuhediin surgaltiin tulbur deer company demjleg baidag uu?",
+            "Does the company reimburse professional certification fees?",
+            "Does the company reimburse certification fees up to 2,000,000 төгрөг?",
+            "Хүүхдийн сургалтын төлбөрийг компани даадаг уу?",
+        ):
+            with self.subTest(query=query):
+                self.assertTrue(is_education_benefit_question(query))
+                self.assertIsNone(precheck_query(query))
+
+        self.assertFalse(
+            is_education_benefit_question("Does the company reimburse tuition and my salary amount?")
+        )
 
     def test_prechecks_code_creation_and_math_but_defers_concepts_to_router(self):
         # The contextual router classifies programming concepts so references

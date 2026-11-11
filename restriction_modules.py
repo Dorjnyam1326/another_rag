@@ -1,4 +1,4 @@
-"""Configurable restriction rules for the local demo chatbot."""
+"""Restriction registry. Add/remove entries here; the sidebar and semantic router follow it."""
 
 RESTRICTION_MODULES = {
     "salary": {
@@ -9,6 +9,11 @@ RESTRICTION_MODULES = {
             "schedule and salary-review procedure questions are allowed when they "
             "do not reveal an amount."
         ),
+        "semantic_match": {
+            "topic": ["payroll"],
+            "request_type": ["amount"],
+            "data_scope": ["personal"],
+        },
         "prompt_instruction": (
             "Treat salary, compensation, bonus, pay ranges, position-specific "
             "salary, and individual payroll amounts as confidential. Never "
@@ -37,6 +42,10 @@ RESTRICTION_MODULES = {
             "Allow explaining code or theory found in an uploaded document, and "
             "allow meta questions about the chatbot itself."
         ),
+        "semantic_match": {
+            "topic": ["programming"],
+            "request_context": ["standalone"],
+        },
         "prompt_instruction": (
             "Do not answer standalone programming questions, including concepts, "
             "or write, complete, debug, or modify code. Allow explanations of "
@@ -56,6 +65,10 @@ RESTRICTION_MODULES = {
             "Decline standalone math exercises and calculations. Allow explaining "
             "a formula or math theory found in an uploaded document."
         ),
+        "semantic_match": {
+            "topic": ["math"],
+            "request_context": ["standalone"],
+        },
         "prompt_instruction": (
             "Do not solve standalone math exercises or calculations. Allow "
             "explaining formulas or math theory from uploaded documents. For a "
