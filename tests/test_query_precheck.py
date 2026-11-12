@@ -7,6 +7,7 @@ from query_precheck import (
     is_salary_schedule_question,
     composite_restrictions,
     precheck_query,
+    request_restriction_candidates,
 )
 
 
@@ -18,6 +19,84 @@ class QueryPrecheckTests(unittest.TestCase):
         )
         self.assertIsNone(precheck_query(query))
         self.assertEqual(composite_restrictions(query), ["salary"])
+
+    def test_latin_bas_splits_allowed_payday_from_restricted_salary_amount(self):
+        query = "tsalin hedend buudag bas minii tsalin hed ve?"
+        self.assertIsNone(precheck_query(query))
+        self.assertEqual(composite_restrictions(query), ["salary"])
+
+    def test_salary_raise_plus_department_salary_splits_into_mixed_requests(self):
+        for query in (
+            "Цалин нэмүүлэхийг хэн батлах + хэлтсийн цалингийн дүн",
+            "tsalin nemuuleh huseltiig hen batlah + heltsiin tsalinii dun",
+        ):
+            with self.subTest(query=query):
+                self.assertIsNone(precheck_query(query))
+                self.assertEqual(composite_restrictions(query), ["salary"])
+
+    def test_transliterated_mixed_leave_and_salary_requests_reach_router(self):
+        cases = (
+            (
+                "bi margash 1 udriin chuluu awmaar baina. manager baihgui bol hen batalah ve? "
+                "ene chuluu tsalintai yu? bas minii sariin undsen tsalin yag heden tugrug baidgiig heleed uguuch?",
+                ["salary"],
+            ),
+            (
+                "bi 4 tsagiin chuluu awmaar baina, yaj huselt uguh ve, tsalintai yu, "
+                "bas minii undsen tsalin hed ve?",
+                ["salary"],
+            ),
+            (
+                "minii sariin undsen tsalin yag heden tugrug baidgiig heleed uguuch? "
+                "bi margash 1 udriin chuluu awmaar baina. manager baihgui bol hen batalah ve? "
+                "ene chuluu tsalintai yu?",
+                ["salary"],
+            ),
+            ("margash chuluu awmaar baina. tsalintai yu?", []),
+            ("tsalin hezee buudag, minii tsalin hed ve?", ["salary"]),
+        )
+        for query, expected_restrictions in cases:
+            with self.subTest(query=query):
+                self.assertIsNone(precheck_query(query))
+                self.assertEqual(composite_restrictions(query), expected_restrictions)
+
+    def test_mixed_requests_route_all_enabled_restrictions_for_separate_classification(self):
+        mixed_cases = (
+            (
+                "Ирцийн хоцролтоо яаж засуулах вэ? Бас Python дээр код бич.",
+                ["programming"],
+            ),
+            (
+                "Оруулсан тайлангийн томьёог тайлбарла. Мөн 240000-ийг 12-т хуваа.",
+                ["math"],
+            ),
+            (
+                "Ирцээ яаж засуулах вэ? Бас энэ сарын цалин хэд болохыг тооц.",
+                ["salary"],
+            ),
+            (
+                "Ирцээ засуулах вэ? Мөн Python код бич. Бас 2x+3=7 бод.",
+                ["programming", "math"],
+            ),
+            (
+                "Ажлын компьютер эвдэрвэл хаана мэдэгдэх вэ? Бас C++ pointer гэж юу вэ?",
+                ["programming"],
+            ),
+        )
+        for query, expected in mixed_cases:
+            with self.subTest(query=query):
+                self.assertIsNone(precheck_query(query))
+                self.assertEqual(composite_restrictions(query), expected)
+
+    def test_individual_restricted_requests_still_block_before_routing(self):
+        for query, module_id in (
+            ("Миний цалин хэд болох вэ?", "salary"),
+            ("Python дээр код бич.", "programming"),
+            ("240000-ийг 12-т хуваа.", "math"),
+        ):
+            with self.subTest(query=query):
+                self.assertEqual(precheck_query(query)[0], module_id)
+                self.assertEqual(composite_restrictions(query), [])
 
     def test_blocks_salary_amount_but_allows_payday_schedule(self):
         self.assertEqual(precheck_query("системийн инженерийн цалин хэд вэ?")[0], "salary")
@@ -95,6 +174,14 @@ class QueryPrecheckTests(unittest.TestCase):
         # to document material or the assistant itself are not blocked by keywords.
         self.assertIsNone(precheck_query("What is a pointer in C++?"))
         self.assertEqual(
+            request_restriction_candidates("What is a pointer in C++?"),
+            ["programming"],
+        )
+        self.assertEqual(
+            request_restriction_candidates("Explain the C++ code in the uploaded document."),
+            [],
+        )
+        self.assertEqual(
             precheck_query("Can you write Java code to sum odd numbers?")[0],
             "programming",
         )
@@ -115,6 +202,38 @@ class QueryPrecheckTests(unittest.TestCase):
     def test_allows_unrelated_general_questions(self):
         self.assertIsNone(precheck_query("How do I plant tomatoes?"))
         self.assertIsNone(precheck_query("What is a fruit?"))
+
+    def test_training_payment_and_workplace_time_ranges_are_not_false_refusals(self):
+        for query in (
+            "how do I pay for training",
+            "09:00-18:00 ажлын цаг хэд вэ",
+            "1-2 өдөр чөлөө авч болох уу",
+            "2024-01-05 хүртэл",
+            "calculate how many leave days I have left",
+        ):
+            with self.subTest(query=query):
+                self.assertIsNone(precheck_query(query))
+
+    def test_grouped_numbers_do_not_split_compound_requests(self):
+        from query_precheck import _request_clauses
+
+        self.assertEqual(
+            _request_clauses("1,000 төгрөг, чөлөөний журам"),
+            ["1,000 төгрөг", "чөлөөний журам"],
+        )
+
+    def test_restricted_salary_code_and_equation_requests_remain_refused(self):
+        for query, module in (
+            ("миний цалин хэд вэ", "salary"),
+            ("what is the salary of an engineer", "salary"),
+            ("write a python function to sort a list", "programming"),
+            ("solve 2x+3=7", "math"),
+            ("What is 18 divided by 3?", "math"),
+        ):
+            with self.subTest(query=query):
+                result = precheck_query(query)
+                self.assertIsNotNone(result)
+                self.assertEqual(result[0], module)
 
     def test_each_restriction_can_be_disabled_independently(self):
         self.assertIsNone(

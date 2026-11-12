@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from streamlit.testing.v1 import AppTest
 
+from conversation_export import conversation_json
 from evaluation.conversation_regression import run as conversation_regression
 
 
@@ -37,15 +38,63 @@ class FakeVectorStores:
 
 class FakeResponses:
     calls = []
+    resolver_calls = []
+    force_resolver_clarification = False
 
     def create(self, **kwargs):
+        payload = json.loads(kwargs["input"])
+        if "user_sources" in payload:
+            type(self).resolver_calls.append(kwargs)
+            sources = payload["user_sources"]
+            results = []
+            for request in payload["requests"]:
+                current_question = payload["current_question"].casefold()
+                missing_leave_source = (
+                    "хэн батлах" in current_question
+                    and not any("чөлөө" in source["content"].casefold() for source in sources)
+                )
+                if (
+                    sources
+                    and not missing_leave_source
+                    and not type(self).force_resolver_clarification
+                ):
+                    results.append({
+                        "request_index": request["request_index"],
+                        "status": "resolved",
+                        "clarification_question": "",
+                        "facts": [
+                            {
+                                "source_message_index": source["source_message_index"],
+                                "source_quote": source["content"],
+                            }
+                            for source in sources
+                        ],
+                    })
+                else:
+                    results.append({
+                        "request_index": request["request_index"],
+                        "status": "clarification",
+                        "clarification_question": "Ямар хүсэлтийн талаар асууж байна вэ?",
+                        "facts": [],
+                    })
+            return SimpleNamespace(
+                status="completed",
+                output_text=json.dumps({"requests": results}, ensure_ascii=False),
+                usage=SimpleNamespace(input_tokens=3, output_tokens=2),
+            )
         self.calls.append(kwargs)
         FakeOpenAI.turn += 1
-        payload = json.loads(kwargs["input"])
         current_question = payload["current_question"]
         is_reaction = current_question.casefold() in {"hhhha", "хмм"}
         is_new_leave_topic = current_question == "Ээлжийн амралтаа хэрхэн хүсэх вэ?"
-        is_follow_up = bool(payload["recent_conversation"]) and not is_new_leave_topic
+        is_confidential_start = current_question.startswith("Нууцын зэрэглэлтэй баримт")
+        is_follow_up = (
+            bool(payload["recent_conversation"])
+            and not is_new_leave_topic
+            and not is_confidential_start
+            and not current_question.casefold()
+            == "ene shine jileer amrah shinj bnu"
+        )
         is_salary_schedule = current_question.casefold() == "tsalin hezee buudag we"
         is_salary_holiday_rule = (
             current_question == "Цалин буух өдөр амралтын өдөр таарвал яадаг вэ?"
@@ -60,7 +109,6 @@ class FakeResponses:
         is_leave_correction = current_question.startswith("Өглөө биш ээ")
         is_leave_approval = current_question.startswith("тэр өдөр manager")
         is_story_leave_turn = is_leave_start or is_leave_correction or is_leave_approval
-        is_confidential_start = current_question.startswith("Нууцын зэрэглэлтэй баримт")
         is_confidential_email = current_question.startswith("тэрийг имэйлээр")
         is_external_report = current_question.startswith("за тэрийг больё")
         is_education_benefit = (
@@ -77,6 +125,18 @@ class FakeResponses:
         )
         interaction_type = (
             "reaction" if is_reaction else "reply" if is_follow_up else "question"
+        )
+        relationship = (
+            "topic_change"
+            if is_external_report
+            else "follow_up"
+            if is_follow_up
+            else "new_topic"
+        )
+        relevant_context_indices = (
+            list(range(len(payload["recent_conversation"])))
+            if is_follow_up
+            else []
         )
         if is_salary_holiday_rule:
             query = "Цалин олгох өдөр амралтын өдөртэй давхцвал ямар журамтай вэ?"
@@ -194,7 +254,11 @@ class FakeResponses:
         output = json.dumps(
             {
                 "interaction_type": interaction_type,
-                "is_follow_up": is_follow_up,
+                "relationship": relationship,
+                "relevant_context_indices": relevant_context_indices,
+                "use_active_topic_state": bool(
+                    is_follow_up and payload["active_topic_state"]
+                ),
                 "updated_summary": updated_summary,
                 "requests": requests,
             },
@@ -241,7 +305,93 @@ class FakeChatOpenAI:
         )
 
 
+class FailingChatOpenAI:
+    def __init__(self, **kwargs):
+        pass
+
+    def invoke(self, messages):
+        raise RuntimeError("answer model unavailable")
+
+
 class AppFollowupTests(unittest.TestCase):
+    def setUp(self):
+        FakeResponses.resolver_calls = []
+        FakeResponses.force_resolver_clarification = False
+
+    def test_pipeline_trace_is_complete_session_only_and_collapsed_rerender_makes_no_calls(self):
+        FakeOpenAI.turn = 0
+        FakeVectorStores.calls = 0
+        FakeVectorStores.queries = []
+        FakeResponses.calls = []
+        FakeChatOpenAI.calls = []
+        env = {"OPENAI_API_KEY": "test-key", "OPENAI_VECTOR_STORE_ID": "vs_test"}
+
+        with (
+            patch.dict(os.environ, env),
+            patch("openai.OpenAI", FakeOpenAI),
+            patch("langchain_openai.ChatOpenAI", FakeChatOpenAI),
+        ):
+            app = AppTest.from_file(Path(__file__).resolve().parents[1] / "app.py").run()
+            app.segmented_control[0].set_value("Chat").run()
+            app.chat_input[0].set_value("Баримтад амралтын өдөр юу гэж байна вэ?").run()
+            self.assertFalse(app.exception)
+
+            assistant = app.session_state["messages"][-1]
+            trace = assistant["pipeline_trace"]
+            self.assertEqual(trace["schema_version"], 1)
+            self.assertEqual(len(trace["steps"]), 9)
+            self.assertEqual(trace["steps"][2]["status"], "complete")
+            self.assertEqual(trace["steps"][6]["status"], "complete")
+            self.assertTrue(trace["steps"][6]["output"]["per_query_results"])
+            self.assertTrue(trace["steps"][7]["input"]["messages"])
+            self.assertNotIn("test-key", str(trace))
+            self.assertNotIn("vs_test", str(trace))
+            self.assertNotIn("pipeline_trace", json.loads(conversation_json(app.session_state["messages"]))["messages"][-1])
+
+            counts = (
+                len(FakeResponses.calls),
+                FakeVectorStores.calls,
+                len(FakeChatOpenAI.calls),
+            )
+            trace_key = f"pipeline-trace-{len(app.session_state['messages']) - 1}"
+            app.session_state[trace_key] = True
+            app.run()
+            self.assertFalse(app.exception)
+            self.assertTrue(any("1. Хэрэглэгчийн оролт" in item.value for item in app.markdown))
+            self.assertTrue(app.code)
+            app.session_state[trace_key] = False
+            app.run()
+            self.assertFalse(app.exception)
+            self.assertFalse(any("1. Хэрэглэгчийн оролт" in item.value for item in app.markdown))
+            self.assertFalse(app.exception)
+            self.assertEqual(
+                counts,
+                (len(FakeResponses.calls), FakeVectorStores.calls, len(FakeChatOpenAI.calls)),
+            )
+
+    def test_model_failure_is_attached_to_user_turn_with_later_steps_marked(self):
+        FakeOpenAI.turn = 0
+        FakeVectorStores.calls = 0
+        FakeVectorStores.queries = []
+        FakeResponses.calls = []
+        env = {"OPENAI_API_KEY": "test-key", "OPENAI_VECTOR_STORE_ID": "vs_test"}
+        with (
+            patch.dict(os.environ, env),
+            patch("openai.OpenAI", FakeOpenAI),
+            patch("langchain_openai.ChatOpenAI", FailingChatOpenAI),
+        ):
+            app = AppTest.from_file(Path(__file__).resolve().parents[1] / "app.py").run()
+            app.segmented_control[0].set_value("Chat").run()
+            app.chat_input[0].set_value("Баримтад амралтын өдөр юу гэж байна вэ?").run()
+            self.assertFalse(app.exception)
+
+        user_turn = app.session_state["messages"][-1]
+        trace = user_turn["pipeline_trace"]
+        steps = {step["id"]: step for step in trace["steps"]}
+        self.assertEqual(steps["retrieval"]["status"], "complete")
+        self.assertEqual(steps["answer"]["status"], "error")
+        self.assertEqual(steps["session_output"]["status"], "error")
+
     def test_targeted_runner_serializes_trace_and_answer_without_live_provider_calls(self):
         _, stories = conversation_regression.load_datasets()
         selected_stories = {"cases": [stories["cases"][38]]}
@@ -274,12 +424,11 @@ class AppFollowupTests(unittest.TestCase):
         self.assertTrue(rows["39.2"]["retrieval_trace"]["queries"])
         self.assertTrue(rows["39.2"]["retrieval_trace"]["evidence"][0]["file_id"])
         self.assertIn("attributes", rows["39.2"]["retrieval_trace"]["evidence"][0])
-        self.assertTrue(rows["39.2"]["citations"])
-        self.assertIn("evidence_ids", rows["39.2"]["citations"][0])
+        self.assertEqual(rows["39.2"]["citations"], [])
         self.assertTrue(rows["39.3"]["route_trace"]["topic_change"])
         self.assertEqual(rows["39.3"]["context_trace"]["effective_prior_turn_ids"], [])
 
-    def test_evaluation_trace_records_context_evidence_and_citation_ids(self):
+    def test_evaluation_trace_does_not_infer_citations_from_filename_text(self):
         FakeOpenAI.turn = 0
         FakeVectorStores.calls = 0
         FakeVectorStores.queries = []
@@ -326,7 +475,8 @@ class AppFollowupTests(unittest.TestCase):
         self.assertEqual(trace["route"]["follow_up"], True)
         self.assertEqual(trace["retrieval"]["evidence"][0]["file_id"], "file-1")
         self.assertEqual(trace["retrieval"]["evidence"][0]["origin"], "previous_turn")
-        self.assertEqual(trace["citations"][0]["evidence_ids"], ["evidence-01"])
+        self.assertEqual(trace["citations"], [])
+        self.assertEqual(assistant["sources"], [])
         self.assertNotIn("text", trace["retrieval"]["evidence"][0])
         self.assertTrue(
             all(fields <= {"role", "content"} for fields in FakeChatOpenAI.message_fields[-1])
@@ -371,7 +521,15 @@ class AppFollowupTests(unittest.TestCase):
             self.assertEqual(turn_traces[0]["route"]["follow_up"], False)
             self.assertEqual(turn_traces[1]["route"]["follow_up"], True)
             self.assertEqual(
-                turn_traces[1]["context"]["effective_prior_turn_ids"], ["38.1"]
+                turn_traces[1]["context"]["effective_prior_turn_ids"], []
+            )
+            self.assertTrue(turn_traces[1]["retrieval"]["performed"])
+            self.assertTrue(
+                any("14:00–18:00" in query for query in turn_traces[1]["retrieval"]["queries"])
+            )
+            self.assertEqual(
+                turn_traces[1]["route"]["requests"][0]["resolution_status"],
+                "not_needed",
             )
             self.assertTrue(trace["route"]["follow_up"])
             self.assertFalse(trace["route"]["topic_change"])
@@ -379,15 +537,15 @@ class AppFollowupTests(unittest.TestCase):
                 {item["turn_id"] for item in trace["context"]["selected_messages"]},
                 {"38.2"},
             )
-            self.assertIn("14:00–18:00", trace["route"]["requests"][0]["resolved_query"])
-            self.assertIn("хувийн чөлөө", trace["route"]["requests"][0]["resolved_query"])
-            self.assertEqual(trace["context"]["effective_context_status"], "used")
-            self.assertEqual(trace["context"]["effective_prior_turn_ids"], ["38.2"])
+            self.assertEqual(
+                trace["route"]["requests"][0]["resolution_status"],
+                "clarification",
+            )
+            self.assertEqual(trace["context"]["effective_context_status"], "not_used")
+            self.assertEqual(trace["context"]["effective_prior_turn_ids"], [])
             queries = trace["retrieval"]["queries"]
-            self.assertTrue(queries)
-            self.assertTrue(all("цалин" not in query.casefold() for query in queries))
-            self.assertIn("14:00–18:00", " ".join(queries))
-            self.assertIn("хувийн чөлөө", " ".join(queries).casefold())
+            self.assertFalse(queries)
+            self.assertFalse(trace["retrieval"]["performed"])
             third_route_payload = json.loads(FakeResponses.calls[-1]["input"])
             self.assertIn("хувийн чөлөө", third_route_payload["active_topic_state"].casefold())
             self.assertIn("14:00–18:00", third_route_payload["active_topic_state"])
@@ -489,8 +647,11 @@ class AppFollowupTests(unittest.TestCase):
             self.assertFalse(app.exception)
 
         self.assertTrue(FakeVectorStores.queries)
-        self.assertTrue(all("цалин" not in query.casefold() for query in FakeVectorStores.queries))
-        self.assertNotIn("цалин", FakeChatOpenAI.calls[-1].casefold())
+        for personal_salary_detail in ("үндсэн цалин", "хэдэн төгрөг"):
+            self.assertTrue(
+                all(personal_salary_detail not in query.casefold() for query in FakeVectorStores.queries)
+            )
+            self.assertNotIn(personal_salary_detail, FakeChatOpenAI.calls[-1].casefold())
         self.assertIn("Хоцролт", app.session_state["messages"][-1]["requests"][1]["intent"])
         trace = app.session_state["messages"][-1]["evaluation_trace"]
         restricted = [
@@ -506,12 +667,792 @@ class AppFollowupTests(unittest.TestCase):
         self.assertEqual(len(allowed), 1)
         self.assertIn("хоцор", allowed[0]["resolved_query"].casefold())
         self.assertTrue(trace["retrieval"]["queries"])
+        pipeline = app.session_state["messages"][-1]["pipeline_trace"]
+        policy = next(item for item in pipeline["steps"] if item["id"] == "policy")
+        strategy = next(item for item in pipeline["steps"] if item["id"] == "strategy")
+        self.assertEqual(policy["status"], "complete")
+        self.assertTrue(any(item["decision"] == "restricted" for item in policy["output"]["decisions"]))
+        self.assertTrue(strategy["output"]["retrieval_queries"])
+        self.assertNotIn("цалин", json.dumps(strategy["output"]["retrieval_queries"], ensure_ascii=False).casefold())
         self.assertTrue(
             all("цалин" not in query.casefold() for query in trace["retrieval"]["queries"])
         )
         self.assertEqual(
             [group["intent"] for group in trace["retrieval"]["query_groups"]],
             ["Хоцролтын бүртгэл"],
+        )
+
+    def test_mixed_programming_and_math_restrictions_preserve_allowed_document_requests(self):
+        scenarios = (
+            {
+                "question": "Тайлангийн томьёог тайлбарла. Бас Python дээр код бич.",
+                "allowed": {
+                    "intent": "Тайлангийн томьёоны тайлбар",
+                    "canonical_query": "Оруулсан тайлангийн томьёог тайлбарла.",
+                    "search_documents": True,
+                    "is_ambiguous": False,
+                    "alternatives": [],
+                    "restriction_modules": [],
+                },
+                "restricted": {
+                    "intent": "Python код бичих",
+                    "topic": "programming",
+                    "request_type": "code_creation",
+                    "data_scope": "general",
+                    "request_context": "standalone",
+                    "canonical_query": "Python дээр код бичих.",
+                    "search_documents": False,
+                    "is_ambiguous": False,
+                    "alternatives": [],
+                    "restriction_modules": [],
+                },
+                "blocked_terms": ("python", "код"),
+                "refusal": "код бичих/засах",
+            },
+            {
+                "question": "Оруулсан тайлан дахь зардлын томьёог тайлбарла. Мөн 240000-ийг 12-т хуваа.",
+                "allowed": {
+                    "intent": "Тайлан дахь зардлын томьёоны тайлбар",
+                    "canonical_query": "Тайлан дахь зардлын томьёог тайлбарла.",
+                    "search_documents": True,
+                    "is_ambiguous": False,
+                    "alternatives": [],
+                    "restriction_modules": [],
+                },
+                "restricted": {
+                    "intent": "Бие даасан математик тооцоо",
+                    "topic": "math",
+                    "request_type": "calculation",
+                    "data_scope": "general",
+                    "request_context": "standalone",
+                    "canonical_query": "240000-ийг 12-т хуваа.",
+                    "search_documents": False,
+                    "is_ambiguous": False,
+                    "alternatives": [],
+                    "restriction_modules": [],
+                },
+                "blocked_terms": ("240000", "12-т"),
+                "refusal": "математикийн бодлого",
+            },
+        )
+        env = {"OPENAI_API_KEY": "test-key", "OPENAI_VECTOR_STORE_ID": "vs_test"}
+        for scenario in scenarios:
+            with self.subTest(question=scenario["question"]):
+                FakeOpenAI.turn = 0
+                FakeVectorStores.calls = 0
+                FakeVectorStores.queries = []
+                FakeResponses.calls = []
+                FakeChatOpenAI.calls = []
+                route = {
+                    "original_query": scenario["question"],
+                    "requests": [scenario["allowed"], scenario["restricted"]],
+                    "interaction_type": "question",
+                    "is_follow_up": False,
+                    "topic_change": False,
+                    "matched_restrictions": [],
+                    "summary_updated": False,
+                    "usage": {"input_tokens": 1, "output_tokens": 1},
+                }
+                with (
+                    patch.dict(os.environ, env),
+                    patch("openai.OpenAI", FakeOpenAI),
+                    patch("langchain_openai.ChatOpenAI", FakeChatOpenAI),
+                    patch("semantic_router.rewrite_queries", return_value=route),
+                ):
+                    app = AppTest.from_file(Path(__file__).resolve().parents[1] / "app.py").run()
+                    app.segmented_control[0].set_value("Chat").run()
+                    app.toggle[1].set_value(False).run()
+                    app.chat_input[0].set_value(scenario["question"]).run()
+                    self.assertFalse(app.exception)
+
+                self.assertTrue(FakeVectorStores.queries)
+                self.assertTrue(
+                    all(
+                        term not in query.casefold()
+                        for term in scenario["blocked_terms"]
+                        for query in FakeVectorStores.queries
+                    )
+                )
+                self.assertTrue(
+                    all(
+                        term not in FakeChatOpenAI.calls[-1].casefold()
+                        for term in scenario["blocked_terms"]
+                    )
+                )
+                self.assertIn(scenario["refusal"], app.session_state["messages"][-1]["content"])
+
+    def test_mixed_restriction_router_and_normalizer_failures_never_search_raw_question(self):
+        question = (
+            "Ирцийн хоцролтоо яаж засуулах вэ? Бас энэ сарын миний цалин хэд болохыг тооц."
+        )
+        normalized = {
+            "normalized_query": "Ирцийн хоцролтыг засуулах болон энэ сарын цалинг тооцох.",
+            "usage": {"input_tokens": 2, "output_tokens": 1},
+        }
+        env = {"OPENAI_API_KEY": "test-key", "OPENAI_VECTOR_STORE_ID": "vs_test"}
+        for normalizer_result in (normalized, ValueError("normalizer unavailable")):
+            with self.subTest(normalizer_success=not isinstance(normalizer_result, Exception)):
+                FakeOpenAI.turn = 0
+                FakeVectorStores.calls = 0
+                FakeVectorStores.queries = []
+                FakeResponses.calls = []
+                FakeChatOpenAI.calls = []
+                with (
+                    patch.dict(os.environ, env),
+                    patch("openai.OpenAI", FakeOpenAI),
+                    patch("langchain_openai.ChatOpenAI", FakeChatOpenAI),
+                    patch("semantic_router.rewrite_queries", side_effect=ValueError("route unavailable")),
+                    patch(
+                        "query_normalizer.normalize_query",
+                        return_value=normalizer_result
+                        if not isinstance(normalizer_result, Exception)
+                        else None,
+                        side_effect=normalizer_result
+                        if isinstance(normalizer_result, Exception)
+                        else None,
+                    ),
+                ):
+                    app = AppTest.from_file(Path(__file__).resolve().parents[1] / "app.py").run()
+                    app.segmented_control[0].set_value("Chat").run()
+                    app.toggle[1].set_value(False).run()
+                    app.session_state["_evaluation_turn"] = {
+                        "suite": "stories",
+                        "session_id": "mixed-router-failure",
+                        "turn_id": "c01.1",
+                        "turn_index": 1,
+                    }
+                    app.chat_input[0].set_value(question).run()
+                    self.assertFalse(app.exception)
+
+                assistant = app.session_state["messages"][-1]
+                self.assertFalse(assistant["retrieval_performed"])
+                self.assertEqual(FakeVectorStores.calls, 0)
+                self.assertEqual(FakeChatOpenAI.calls, [])
+                self.assertIn("цалингийн дүн", assistant["content"])
+                self.assertEqual(assistant["requests"], [])
+                self.assertTrue(assistant["routing_failed"])
+                self.assertTrue(assistant["evaluation_trace"]["route"]["routing_failed"])
+                router_step = next(
+                    item for item in assistant["pipeline_trace"]["steps"]
+                    if item["id"] == "router"
+                )
+                self.assertTrue(router_step["output"]["routing_failed"])
+
+    def test_incomplete_router_retries_and_answers_two_allowed_requests(self):
+        question = (
+            "bi 4 tsagiin chuluu awmaar baina, yaj huselt uguh ve, tsalintai yu, "
+            "bas minii undsen tsalin hed ve?"
+        )
+        route = {
+            "interaction_type": "question",
+            "relationship": "new_topic",
+            "relevant_context_indices": [],
+            "use_active_topic_state": False,
+            "updated_summary": "",
+            "requests": [
+                {
+                    "intent": "Дөрвөн цагийн чөлөө авах хүсэлт",
+                    "topic": "leave",
+                    "request_type": "procedure",
+                    "data_scope": "general",
+                    "request_context": "workplace",
+                    "canonical_query": "Дөрвөн цагийн чөлөө авах хүсэлтийг хэрхэн гаргах вэ?",
+                    "search_documents": True,
+                    "is_ambiguous": False,
+                    "alternatives": [],
+                },
+                {
+                    "intent": "Дөрвөн цагийн чөлөө цалинтай эсэх",
+                    "topic": "leave",
+                    "request_type": "paid_leave",
+                    "data_scope": "general",
+                    "request_context": "workplace",
+                    "canonical_query": "Дөрвөн цагийн чөлөө ямар нөхцөлд цалинтай вэ?",
+                    "search_documents": True,
+                    "is_ambiguous": False,
+                    "alternatives": [],
+                },
+                {
+                    "intent": "Хувийн үндсэн цалингийн дүн",
+                    "topic": "payroll",
+                    "request_type": "amount",
+                    "data_scope": "personal",
+                    "request_context": "workplace",
+                    "canonical_query": "Миний үндсэн цалин хэд вэ?",
+                    "search_documents": True,
+                    "is_ambiguous": False,
+                    "alternatives": [],
+                },
+            ],
+        }
+
+        class Responses:
+            calls = []
+
+            @classmethod
+            def create(cls, **kwargs):
+                cls.calls.append(kwargs)
+                if len(cls.calls) == 1:
+                    return SimpleNamespace(
+                        status="incomplete",
+                        incomplete_details=SimpleNamespace(reason="max_output_tokens"),
+                        output_text='{"requests":[{"intent":"truncated',
+                        usage=SimpleNamespace(input_tokens=10, output_tokens=1400),
+                    )
+                return SimpleNamespace(
+                    status="completed",
+                    output_text=json.dumps(route, ensure_ascii=False),
+                    usage=SimpleNamespace(input_tokens=12, output_tokens=500),
+                )
+
+        env = {"OPENAI_API_KEY": "test-key", "OPENAI_VECTOR_STORE_ID": "vs_test"}
+        FakeVectorStores.calls = 0
+        FakeVectorStores.queries = []
+        FakeChatOpenAI.calls = []
+        Responses.calls = []
+        with (
+            patch.dict(os.environ, env),
+            patch("openai.OpenAI", FakeOpenAI),
+            patch("langchain_openai.ChatOpenAI", FakeChatOpenAI),
+            patch.object(FakeResponses, "create", Responses.create),
+        ):
+            app = AppTest.from_file(Path(__file__).resolve().parents[1] / "app.py").run()
+            app.segmented_control[0].set_value("Chat").run()
+            app.chat_input[0].set_value(question).run()
+            self.assertFalse(app.exception)
+
+        assistant = app.session_state["messages"][-1]
+        self.assertEqual([call["max_output_tokens"] for call in Responses.calls], [1400, 1800])
+        self.assertEqual(len(assistant["requests"]), 3)
+        self.assertEqual(assistant["restricted_modules"], ["salary"])
+        self.assertTrue(assistant["retrieval_performed"])
+        self.assertTrue(FakeVectorStores.queries)
+        self.assertTrue(all("үндсэн цалин" not in query.casefold() for query in FakeVectorStores.queries))
+        self.assertNotIn("үндсэн цалин", FakeChatOpenAI.calls[-1].casefold())
+        self.assertIn("нууцын зэрэглэлтэй", assistant["content"])
+        pipeline = {item["id"]: item for item in assistant["pipeline_trace"]["steps"]}
+        decisions = pipeline["policy"]["output"]["decisions"]
+        self.assertEqual([item["decision"] for item in decisions], ["allowed", "allowed", "restricted"])
+        self.assertEqual(len(pipeline["router"]["output"]["routing_attempts"]), 2)
+
+    def test_mixed_latin_payday_redacts_restricted_text_but_keeps_safe_followup_context(self):
+        mixed_query = "tsalin hedend buudag bas minii tsalin hed ve?"
+        followup_query = "tegwel ter udur ni amraltiin udur bwal?"
+        routes = {
+            mixed_query: {
+                "interaction_type": "question",
+                "relationship": "new_topic",
+                "relevant_context_indices": [],
+                "use_active_topic_state": False,
+                "updated_summary": "",
+                "requests": [
+                    {
+                        "intent": "Цалин олгох хуваарь",
+                        "topic": "payroll",
+                        "request_type": "schedule",
+                        "data_scope": "general",
+                        "request_context": "workplace",
+                        "canonical_query": "Цалин хэдний өдөр олгодог вэ?",
+                        "search_documents": True,
+                        "is_ambiguous": False,
+                        "alternatives": [],
+                    },
+                    {
+                        "intent": "Хувийн цалингийн дүн",
+                        "topic": "payroll",
+                        "request_type": "amount",
+                        "data_scope": "personal",
+                        "request_context": "workplace",
+                        "canonical_query": "Миний цалин хэд вэ?",
+                        "search_documents": True,
+                        "is_ambiguous": False,
+                        "alternatives": [],
+                    },
+                ],
+            },
+            followup_query: {
+                "interaction_type": "reply",
+                "relationship": "follow_up",
+                "relevant_context_indices": [0, 1],
+                "use_active_topic_state": True,
+                "updated_summary": "",
+                "requests": [{
+                    "intent": "Амралтын өдөртэй давхцсан цалин олгох хуваарь",
+                    "topic": "payroll",
+                    "request_type": "schedule",
+                    "data_scope": "general",
+                    "request_context": "workplace",
+                    "canonical_query": "Цалин олгох өдөр амралтын өдөртэй давхцвал ямар журамтай вэ?",
+                    "search_documents": True,
+                    "is_ambiguous": False,
+                    "alternatives": [],
+                }],
+            },
+        }
+
+        class RouterClient:
+            def __init__(self, **kwargs):
+                self.responses = SimpleNamespace(create=self._route)
+                self.vector_stores = FakeVectorStores()
+
+            def _route(self, **kwargs):
+                payload = json.loads(kwargs["input"])
+                if "user_sources" in payload:
+                    request = payload["requests"][0]
+                    source = payload["user_sources"][0]
+                    outcome = {
+                        "requests": [{
+                            "request_index": request["request_index"],
+                            "status": "resolved",
+                            "clarification_question": "",
+                            "facts": [{
+                                "source_message_index": source["source_message_index"],
+                                "source_quote": source["content"],
+                            }],
+                        }]
+                    }
+                    return SimpleNamespace(
+                        status="completed",
+                        output_text=json.dumps(outcome, ensure_ascii=False),
+                        usage=SimpleNamespace(input_tokens=1, output_tokens=1),
+                    )
+                route = routes[payload["current_question"]]
+                FakeResponses.calls.append(kwargs)
+                return SimpleNamespace(
+                    status="completed",
+                    output_text=json.dumps(route, ensure_ascii=False),
+                    usage=SimpleNamespace(input_tokens=2, output_tokens=1),
+                )
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+        FakeResponses.calls = []
+        FakeVectorStores.calls = 0
+        FakeVectorStores.queries = []
+        FakeChatOpenAI.calls = []
+        env = {"OPENAI_API_KEY": "test-key", "OPENAI_VECTOR_STORE_ID": "vs_test"}
+        with (
+            patch.dict(os.environ, env),
+            patch("openai.OpenAI", RouterClient),
+            patch("langchain_openai.ChatOpenAI", FakeChatOpenAI),
+        ):
+            app = AppTest.from_file(Path(__file__).resolve().parents[1] / "app.py").run()
+            app.segmented_control[0].set_value("Chat").run()
+            app.chat_input[0].set_value(mixed_query).run()
+            self.assertFalse(app.exception)
+            first_assistant = app.session_state["messages"][-1]
+            self.assertEqual(
+                [request["canonical_query"] for request in first_assistant["requests"]],
+                ["Цалин хэдний өдөр олгодог вэ?", "Миний цалин хэд вэ?"],
+            )
+            self.assertEqual(first_assistant["restricted_modules"], ["salary"])
+            self.assertEqual(
+                app.session_state["messages"][-2]["context_content"],
+                "Цалин хэдний өдөр олгодог вэ?",
+            )
+
+            app.chat_input[0].set_value(followup_query).run()
+            self.assertFalse(app.exception)
+
+        second_assistant = app.session_state["messages"][-1]
+        second_route_payload = json.loads(FakeResponses.calls[-1]["input"])
+        safe_history = json.dumps(second_route_payload["recent_conversation"], ensure_ascii=False)
+        self.assertIn("Цалин хэдний өдөр олгодог вэ?", safe_history)
+        self.assertNotIn("minii tsalin hed ve", safe_history.casefold())
+        self.assertEqual(
+            FakeVectorStores.queries,
+            [
+                "Цалин хэдний өдөр олгодог вэ?",
+                "Цалин олгох өдөр амралтын өдөртэй давхцвал ямар журамтай вэ?",
+            ],
+        )
+        self.assertTrue(second_assistant["retrieval_performed"])
+        self.assertEqual(second_assistant["requests"][0]["resolution_status"], "resolved")
+
+    def test_salary_review_full_and_plus_mixed_requests_keep_safe_followup_context(self):
+        initial = "tsalingaa nemuuleh huselt gargah gesen ym"
+        full_mixed = "tsalin nemuuleh huseltiig hen batlah bas manai heltsiin tsalin hed ve"
+        mixed = "tsalin nemuuleh huseltiig hen batlah + heltsiin tsalinii dun"
+        followup = "ter huselt haana gargadag ve"
+        allowed_query = "Цалин нэмүүлэх хүсэлтийг хэн батлах вэ?"
+        routes = {
+            initial: {
+                "interaction_type": "question",
+                "relationship": "new_topic",
+                "relevant_context_indices": [],
+                "use_active_topic_state": False,
+                "updated_summary": "",
+                "requests": [{
+                    "intent": "Цалин нэмүүлэх хүсэлтийн журам",
+                    "topic": "payroll",
+                    "request_type": "procedure",
+                    "data_scope": "general",
+                    "request_context": "workplace",
+                    "canonical_query": "Цалин нэмүүлэх хүсэлтийг хэрхэн гаргах вэ?",
+                    "search_documents": True,
+                    "is_ambiguous": False,
+                    "alternatives": [],
+                }],
+            },
+            mixed: {
+                "interaction_type": "question",
+                "relationship": "new_topic",
+                "relevant_context_indices": [],
+                "use_active_topic_state": False,
+                "updated_summary": "",
+                "requests": [
+                    {
+                        "intent": "Цалин нэмүүлэх хүсэлтийг хэн батлах журам",
+                        "topic": "payroll",
+                        "request_type": "approval",
+                        "data_scope": "general",
+                        "request_context": "workplace",
+                        "canonical_query": allowed_query,
+                        "search_documents": True,
+                        "is_ambiguous": False,
+                        "alternatives": [],
+                    },
+                    {
+                        "intent": "Хэлтсийн ажилтнуудын цалингийн дүн",
+                        "topic": "payroll",
+                        "request_type": "amount",
+                        "data_scope": "personal",
+                        "request_context": "workplace",
+                        "canonical_query": "Хэлтсийн ажилтнуудын цалингийн дүн хэд вэ?",
+                        "search_documents": True,
+                        "is_ambiguous": False,
+                        "alternatives": [],
+                    },
+                ],
+            },
+            followup: {
+                "interaction_type": "reply",
+                "relationship": "follow_up",
+                "relevant_context_indices": [0, 1],
+                "use_active_topic_state": True,
+                "updated_summary": "",
+                "requests": [{
+                    "intent": "Цалин нэмүүлэх хүсэлт гаргах газар",
+                    "topic": "payroll",
+                    "request_type": "procedure",
+                    "data_scope": "general",
+                    "request_context": "workplace",
+                    "canonical_query": "Цалин нэмүүлэх хүсэлтийг хаана гаргаж болох вэ?",
+                    "search_documents": True,
+                    "is_ambiguous": False,
+                    "alternatives": [],
+                }],
+            },
+        }
+        routes[full_mixed] = routes[mixed]
+
+        class RouterClient:
+            def __init__(self, **kwargs):
+                self.responses = SimpleNamespace(create=self._route)
+                self.vector_stores = FakeVectorStores()
+
+            def _route(self, **kwargs):
+                payload = json.loads(kwargs["input"])
+                if "user_sources" in payload:
+                    request = payload["requests"][0]
+                    source = payload["user_sources"][0]
+                    result = {"requests": [{
+                        "request_index": request["request_index"],
+                        "status": "resolved",
+                        "clarification_question": "",
+                        "facts": [{
+                            "source_message_index": source["source_message_index"],
+                            "source_quote": source["content"],
+                        }],
+                    }]}
+                    return SimpleNamespace(
+                        status="completed",
+                        output_text=json.dumps(result, ensure_ascii=False),
+                        usage=SimpleNamespace(input_tokens=1, output_tokens=1),
+                    )
+                FakeResponses.calls.append(kwargs)
+                return SimpleNamespace(
+                    status="completed",
+                    output_text=json.dumps(routes[payload["current_question"]], ensure_ascii=False),
+                    usage=SimpleNamespace(input_tokens=2, output_tokens=1),
+                )
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+        FakeResponses.calls = []
+        FakeVectorStores.calls = 0
+        FakeVectorStores.queries = []
+        FakeChatOpenAI.calls = []
+        env = {"OPENAI_API_KEY": "test-key", "OPENAI_VECTOR_STORE_ID": "vs_test"}
+        with (
+            patch.dict(os.environ, env),
+            patch("openai.OpenAI", RouterClient),
+            patch("langchain_openai.ChatOpenAI", FakeChatOpenAI),
+        ):
+            app = AppTest.from_file(Path(__file__).resolve().parents[1] / "app.py").run()
+            app.segmented_control[0].set_value("Chat").run()
+            app.chat_input[0].set_value(initial).run()
+            self.assertFalse(app.exception)
+            app.chat_input[0].set_value(full_mixed).run()
+            self.assertFalse(app.exception)
+            full_assistant = app.session_state["messages"][-1]
+            self.assertEqual(full_assistant["restricted_modules"], ["salary"])
+
+            app.chat_input[0].set_value(mixed).run()
+            self.assertFalse(app.exception)
+            second_assistant = app.session_state["messages"][-1]
+            self.assertEqual(second_assistant["restricted_modules"], ["salary"])
+            self.assertEqual(
+                app.session_state["messages"][-2]["context_content"], allowed_query
+            )
+            app.chat_input[0].set_value(followup).run()
+            self.assertFalse(app.exception)
+
+        third_route = json.loads(FakeResponses.calls[-1]["input"])
+        safe_context = json.dumps(third_route["recent_conversation"], ensure_ascii=False).casefold()
+        self.assertIn(allowed_query.casefold(), safe_context)
+        self.assertNotIn("heltsiin tsalinii dun", safe_context)
+        self.assertEqual(
+            app.session_state["messages"][-1]["requests"][0]["resolution_status"],
+            "resolved",
+        )
+        self.assertEqual(
+            FakeVectorStores.queries,
+            [
+                "Цалин нэмүүлэх хүсэлтийг хэрхэн гаргах вэ?",
+                allowed_query,
+                allowed_query,
+                "Цалин нэмүүлэх хүсэлтийг хаана гаргаж болох вэ?",
+            ],
+        )
+
+    def test_pure_restricted_turn_does_not_erase_prior_allowed_followup_context(self):
+        FakeOpenAI.turn = 0
+        FakeVectorStores.calls = 0
+        FakeResponses.calls = []
+        FakeChatOpenAI.calls = []
+        env = {"OPENAI_API_KEY": "test-key", "OPENAI_VECTOR_STORE_ID": "vs_test"}
+
+        with (
+            patch.dict(os.environ, env),
+            patch("openai.OpenAI", FakeOpenAI),
+            patch("langchain_openai.ChatOpenAI", FakeChatOpenAI),
+        ):
+            app = AppTest.from_file(Path(__file__).resolve().parents[1] / "app.py").run()
+            app.segmented_control[0].set_value("Chat").run()
+            app.chat_input[0].set_value("tsalingaa hezee yaj nemuuldeg ym bol").run()
+            self.assertFalse(app.exception)
+            allowed_topic = app.session_state["active_topic_state"]
+            self.assertIn("Цалин нэмүүлэх", allowed_topic)
+
+            app.chat_input[0].set_value("minii undsen tsalin yag hed ve?").run()
+            self.assertFalse(app.exception)
+            self.assertEqual(app.session_state["active_topic_state"], allowed_topic)
+
+            app.chat_input[0].set_value("ter huselt haana gargadag ve").run()
+            self.assertFalse(app.exception)
+
+        followup_payload = json.loads(FakeResponses.calls[-1]["input"])
+        recent_context = json.dumps(followup_payload["recent_conversation"], ensure_ascii=False).casefold()
+        self.assertIn("tsalingaa hezee yaj nemuuldeg ym bol", recent_context)
+        self.assertNotIn("minii undsen tsalin yag hed ve", recent_context)
+
+    def test_corrected_followup_searches_only_the_router_canonical_query(self):
+        old_request = "bi 3 udriin chuluu awna"
+        assistant_history = "Чөлөөний хүсэлтийг ойлголоо."
+        correction = "ugui 3 udur bish 3 tsag"
+        canonical = "3 өдрийн биш, 3 цагийн чөлөө авах гэсэн юм."
+        route = {
+            "original_query": correction,
+            "requests": [{
+                "intent": "Гурван цагийн чөлөө авах журам",
+                "canonical_query": canonical,
+                "search_documents": True,
+                "is_ambiguous": False,
+                "alternatives": [],
+                "restriction_modules": [],
+            }],
+            "interaction_type": "reply",
+            "is_follow_up": True,
+            "topic_change": False,
+            "relationship": "follow_up",
+            "relevant_context_indices": [0, 1],
+            "context_messages": [
+                {"role": "user", "content": old_request, "source_message_index": 0},
+                {"role": "assistant", "content": assistant_history, "source_message_index": 1},
+            ],
+            "selected_active_topic_state": "",
+            "active_topic_state": canonical,
+            "matched_restrictions": [],
+            "summary_updated": False,
+            "usage": {"input_tokens": 1, "output_tokens": 1},
+        }
+        resolver_result = {
+            "requests": {
+                0: {
+                    "status": "resolved",
+                    "resolved_query": "3 цагийн чөлөө авах гэсэн юм.",
+                    "source_message_indices": [0],
+                }
+            },
+            "usage": {"input_tokens": 1, "output_tokens": 1},
+        }
+        env = {"OPENAI_API_KEY": "test-key", "OPENAI_VECTOR_STORE_ID": "vs_test"}
+        FakeVectorStores.calls = 0
+        FakeVectorStores.queries = []
+        FakeChatOpenAI.calls = []
+
+        with (
+            patch.dict(os.environ, env),
+            patch("openai.OpenAI", FakeOpenAI),
+            patch("langchain_openai.ChatOpenAI", FakeChatOpenAI),
+            patch("semantic_router.rewrite_queries", return_value=route),
+            patch("context_resolver.resolve_followup_queries", return_value=resolver_result),
+        ):
+            app = AppTest.from_file(Path(__file__).resolve().parents[1] / "app.py").run()
+            app.segmented_control[0].set_value("Chat").run()
+            app.session_state["messages"] = [
+                {"role": "user", "content": old_request},
+                {"role": "assistant", "content": assistant_history},
+            ]
+            app.chat_input[0].set_value(correction).run()
+            self.assertFalse(app.exception)
+
+        assistant = app.session_state["messages"][-1]
+        self.assertEqual(FakeVectorStores.queries, ["3 цагийн чөлөө авах гэсэн юм."])
+        self.assertNotIn("3 өдрийн", FakeVectorStores.queries[0])
+        self.assertNotIn("udriin", FakeVectorStores.queries[0].casefold())
+        self.assertTrue(assistant["retrieval_performed"])
+        strategy = next(
+            item for item in assistant["pipeline_trace"]["steps"]
+            if item["id"] == "strategy"
+        )
+        self.assertEqual(strategy["output"]["strategy"], "B")
+
+    def test_affirmative_confirmation_resumes_pending_query_without_router(self):
+        FakeOpenAI.turn = 0
+        FakeVectorStores.calls = 0
+        FakeVectorStores.queries = []
+        FakeResponses.calls = []
+        FakeChatOpenAI.calls = []
+        env = {"OPENAI_API_KEY": "test-key", "OPENAI_VECTOR_STORE_ID": "vs_test"}
+        pending_query = "3 цагийн чөлөө авах журмыг тайлбарлана уу?"
+
+        with (
+            patch.dict(os.environ, env),
+            patch("openai.OpenAI", FakeOpenAI),
+            patch("langchain_openai.ChatOpenAI", FakeChatOpenAI),
+            patch("context_resolver.resolve_followup_queries") as resolver,
+        ):
+            app = AppTest.from_file(Path(__file__).resolve().parents[1] / "app.py").run()
+            app.segmented_control[0].set_value("Chat").run()
+            app.session_state["messages"] = [
+                {"role": "user", "content": "3 цагийн чөлөөний нөхцөл?"},
+                {
+                    "role": "assistant",
+                    "content": "Та 3 цагийн чөлөөний журмыг асууж байна уу?",
+                    "pending_requests": [{
+                        "intent": "3 цагийн чөлөө авах журам",
+                        "pending_query": pending_query,
+                        "restriction_modules": [],
+                    }],
+                },
+            ]
+            app.chat_input[0].set_value("yes").run()
+            self.assertFalse(app.exception)
+
+        self.assertEqual(FakeVectorStores.queries, [pending_query])
+        self.assertEqual(FakeResponses.calls, [])
+        resolver.assert_not_called()
+        assistant = app.session_state["messages"][-1]
+        self.assertEqual(assistant["requests"][0]["canonical_query"], pending_query)
+        router_trace = next(
+            item for item in assistant["pipeline_trace"]["steps"]
+            if item["id"] == "router"
+        )
+        self.assertTrue(router_trace["output"]["confirmation_resume"])
+        self.assertNotIn("yes", FakeChatOpenAI.calls[-1].casefold())
+
+    def test_new_three_day_leave_request_after_four_hour_request_skips_resolver(self):
+        route = {
+            "interaction_type": "question",
+            "updated_summary": "",
+            "relationship": "follow_up",
+            "relevant_context_indices": [0, 1],
+            "use_active_topic_state": True,
+            "requests": [{
+                "intent": "Гурван өдрийн чөлөө авах журам",
+                "topic": "leave",
+                "request_type": "procedure",
+                "data_scope": "general",
+                "request_context": "workplace",
+                "canonical_query": "3 өдрийн чөлөө авахын тулд ямар журам баримтлах вэ?",
+                "search_documents": True,
+                "is_ambiguous": False,
+                "alternatives": [],
+            }],
+        }
+
+        class RouteClient:
+            def __init__(self, **kwargs):
+                self.responses = SimpleNamespace(create=self._route)
+                self.vector_stores = FakeVectorStores()
+
+            def _route(self, **kwargs):
+                return SimpleNamespace(
+                    status="completed",
+                    output_text=json.dumps(route, ensure_ascii=False),
+                    usage=SimpleNamespace(input_tokens=1, output_tokens=1),
+                )
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+        FakeOpenAI.turn = 1
+        FakeVectorStores.calls = 0
+        FakeVectorStores.queries = []
+        FakeChatOpenAI.calls = []
+        env = {"OPENAI_API_KEY": "test-key", "OPENAI_VECTOR_STORE_ID": "vs_test"}
+        with (
+            patch.dict(os.environ, env),
+            patch("openai.OpenAI", RouteClient),
+            patch("langchain_openai.ChatOpenAI", FakeChatOpenAI),
+            patch("context_resolver.resolve_followup_queries") as resolver,
+        ):
+            app = AppTest.from_file(Path(__file__).resolve().parents[1] / "app.py").run()
+            app.segmented_control[0].set_value("Chat").run()
+            app.session_state["messages"] = [
+                {"role": "user", "content": "bi 4 tsagiin chuluu yaj awah ve?"},
+                {"role": "assistant", "content": "Өмнөх чөлөөний хариулт."},
+            ]
+            app.chat_input[0].set_value("bi 3 udriin chuluu awna").run()
+            self.assertFalse(app.exception)
+
+        resolver.assert_not_called()
+        assistant = app.session_state["messages"][-1]
+        self.assertEqual(FakeVectorStores.queries, [
+            "3 өдрийн чөлөө авахын тулд ямар журам баримтлах вэ?"
+        ])
+        self.assertTrue(assistant["retrieval_performed"])
+        self.assertFalse(assistant["follow_up_context"])
+        router = next(
+            item for item in assistant["pipeline_trace"]["steps"]
+            if item["id"] == "router"
+        )
+        self.assertEqual(
+            router["output"]["normalized_route"]["context_resolution_decision"],
+            "self_contained_leave_request",
         )
 
     def test_unrelated_new_question_does_not_use_previous_answer_context(self):
@@ -549,7 +1490,8 @@ class AppFollowupTests(unittest.TestCase):
         self.assertEqual(route_payload["active_topic_state"], "")
         self.assertEqual(trace["context"]["selected_messages"][0]["turn_id"], "unrelated.1")
         self.assertFalse(trace["route"]["follow_up"])
-        self.assertTrue(trace["route"]["topic_change"])
+        self.assertFalse(trace["route"]["topic_change"])
+        self.assertEqual(trace["route"]["relationship"], "new_topic")
         self.assertEqual(trace["context"]["effective_context_status"], "not_used")
         self.assertEqual(trace["context"]["effective_prior_turn_ids"], [])
         self.assertTrue(trace["retrieval"]["query_groups"])
@@ -652,13 +1594,16 @@ class AppFollowupTests(unittest.TestCase):
             FakeChatOpenAI.system_prompts[-1],
         )
 
-    def test_half_day_leave_prompt_scopes_annual_leave_conditions(self):
+    def test_half_day_leave_guidance_comes_from_domain_config(self):
+        from domain_rules import load_domain_rules
+
         prompt = (
             Path(__file__).resolve().parents[1] / "prompts" / "rag_agent.md"
         ).read_text(encoding="utf-8")
+        self.assertNotIn("Do not transfer a condition from annual leave", prompt)
         self.assertIn(
-            "Do not transfer a condition from annual leave to personal or half-day leave",
-            prompt,
+            "Do not transfer a condition from annual leave",
+            " ".join(load_domain_rules()["answer_instructions"]),
         )
 
     def test_dashboard_recent_questions_include_tokens_and_latency_totals(self):
@@ -738,9 +1683,12 @@ class AppFollowupTests(unittest.TestCase):
         self.assertEqual(assistant["rewrite_failure"], "ValueError")
         timings = assistant["timing_ms"]
         self.assertEqual(
-            set(timings), {"rewrite_ms", "retrieval_ms", "model_ms", "total_ms"}
+            set(timings), {
+                "rewrite_ms", "context_resolution_ms", "retrieval_ms",
+                "model_ms", "total_ms",
+            }
         )
-        self.assertTrue(all(value >= 0 for value in timings.values()))
+        self.assertTrue(all(value is None or value >= 0 for value in timings.values()))
         self.assertTrue(
             any(
                 "Хугацаа: нийт" in item.value
@@ -804,7 +1752,62 @@ class AppFollowupTests(unittest.TestCase):
             "The directors meeting is weekly on Monday at 10:00.",
             FakeChatOpenAI.calls[1],
         )
+        self.assertEqual(len(FakeResponses.resolver_calls), 1)
+        resolver_payload = json.loads(FakeResponses.resolver_calls[0]["input"])
+        self.assertEqual(
+            [item["role"] for item in resolver_payload["selected_context"]],
+            ["user", "assistant"],
+        )
+        self.assertEqual(
+            [item["source_message_index"] for item in resolver_payload["user_sources"]],
+            [0],
+        )
+        followup = app.session_state["messages"][-1]
+        self.assertEqual(followup["requests"][0]["source_message_indices"], [0])
+        pipeline = followup["pipeline_trace"]
+        resolver_step = next(item for item in pipeline["steps"] if item["id"] == "resolver")
+        self.assertIn("source_quote", json.dumps(resolver_step, ensure_ascii=False))
+        self.assertIn("zahiraluudiin hural hezee boldog we", json.dumps(resolver_step, ensure_ascii=False))
+        self.assertEqual(
+            followup["retrieval_queries"],
+            ["Захирлуудын хурлын журамд өөр юу дурдсан байдаг вэ?"],
+        )
+        self.assertNotIn("zahiraluudiin", followup["retrieval_queries"][0].casefold())
+        self.assertNotIn("holbogdoh durem", followup["retrieval_queries"][0].casefold())
         self.assertEqual(FakeVectorStores.calls, 2)
+
+    def test_unresolved_followup_asks_clarification_without_search_or_answer_call(self):
+        FakeOpenAI.turn = 0
+        FakeVectorStores.calls = 0
+        FakeVectorStores.queries = []
+        FakeResponses.calls = []
+        FakeChatOpenAI.calls = []
+        env = {"OPENAI_API_KEY": "test-key", "OPENAI_VECTOR_STORE_ID": "vs_test"}
+
+        with (
+            patch.dict(os.environ, env),
+            patch("openai.OpenAI", FakeOpenAI),
+            patch("langchain_openai.ChatOpenAI", FakeChatOpenAI),
+        ):
+            app = AppTest.from_file(Path(__file__).resolve().parents[1] / "app.py").run()
+            app.segmented_control[0].set_value("Chat").run()
+            app.toggle[1].set_value(False).run()
+            app.chat_input[0].set_value("zahiraluudiin hural hezee boldog we").run()
+            self.assertFalse(app.exception)
+            FakeResponses.force_resolver_clarification = True
+            app.chat_input[0].set_value("holbogdoh durem juramd uur yu durdsan we").run()
+            self.assertFalse(app.exception)
+
+        assistant = app.session_state["messages"][-1]
+        self.assertIn("Ямар хүсэлтийн талаар асууж байна вэ?", assistant["content"])
+        self.assertEqual(FakeVectorStores.calls, 1)
+        self.assertEqual(len(FakeChatOpenAI.calls), 1)
+        self.assertEqual(len(FakeResponses.resolver_calls), 1)
+        self.assertEqual(assistant["retrieval_queries"], [])
+        steps = {step["id"]: step for step in assistant["pipeline_trace"]["steps"]}
+        self.assertEqual(steps["resolver"]["status"], "complete")
+        self.assertEqual(steps["retrieval"]["status"], "skipped")
+        self.assertEqual(steps["answer"]["status"], "skipped")
 
     def test_reaction_is_not_sent_to_document_search_as_a_new_question(self):
         FakeOpenAI.turn = 0
@@ -926,6 +1929,9 @@ class AppFollowupTests(unittest.TestCase):
         self.assertEqual(FakeResponses.calls, [])
         self.assertEqual(FakeVectorStores.calls, 0)
         self.assertEqual(FakeChatOpenAI.calls, [])
+        steps = {step["id"]: step for step in app.session_state["messages"][-1]["pipeline_trace"]["steps"]}
+        self.assertEqual(steps["fast_check"]["status"], "complete")
+        self.assertTrue(all(steps[name]["status"] == "skipped" for name in ("router", "resolver", "retrieval", "answer")))
 
     def test_standalone_acknowledgment_does_not_get_an_echo_or_call_models(self):
         FakeOpenAI.turn = 0
@@ -1270,6 +2276,74 @@ class AppFollowupTests(unittest.TestCase):
         self.assertNotIn("энэ сарын миний цалин", FakeChatOpenAI.calls[0])
         self.assertTrue(assistant["retrieval_performed"])
         self.assertIn("meeting.docx: previous answer context", assistant["content"])
+        self.assertIn("нууцын зэрэглэлтэй", assistant["content"])
+        self.assertEqual(assistant["restricted_modules"], ["salary"])
+
+    def test_mixed_transliterated_leave_questions_search_without_personal_salary(self):
+        question = (
+            "bi margash 1 udriin chuluu awmaar baina. manager baihgui bol hen batalah ve? "
+            "ene chuluu tsalintai yu? bas minii sariin undsen tsalin yag heden tugrug baidgiig heleed uguuch?"
+        )
+        route = {
+            "original_query": question,
+            "requests": [
+                {
+                    "intent": "Нэг өдрийн чөлөөний батлах журам",
+                    "canonical_query": "Менежер эзгүй үед нэг өдрийн чөлөөг хэн батлах вэ?",
+                    "search_documents": True,
+                    "is_ambiguous": False,
+                    "alternatives": [],
+                    "restriction_modules": [],
+                },
+                {
+                    "intent": "Нэг өдрийн чөлөө цалинтай эсэх",
+                    "canonical_query": "Нэг өдрийн чөлөө ямар нөхцөлд цалинтай вэ?",
+                    "search_documents": True,
+                    "is_ambiguous": False,
+                    "alternatives": [],
+                    "restriction_modules": [],
+                },
+                {
+                    "intent": "Хувийн сарын үндсэн цалингийн дүн",
+                    "canonical_query": "Миний сарын үндсэн цалин яг хэдэн төгрөг вэ?",
+                    "search_documents": True,
+                    "is_ambiguous": False,
+                    "alternatives": [],
+                    "restriction_modules": [],
+                },
+            ],
+            "interaction_type": "question",
+            "is_follow_up": False,
+            "topic_change": False,
+            "matched_restrictions": [],
+            "summary_updated": False,
+            "usage": {"input_tokens": 1, "output_tokens": 1},
+        }
+        FakeOpenAI.turn = 0
+        FakeVectorStores.calls = 0
+        FakeVectorStores.queries = []
+        FakeResponses.calls = []
+        FakeChatOpenAI.calls = []
+        env = {"OPENAI_API_KEY": "test-key", "OPENAI_VECTOR_STORE_ID": "vs_test"}
+
+        with (
+            patch.dict(os.environ, env),
+            patch("openai.OpenAI", FakeOpenAI),
+            patch("langchain_openai.ChatOpenAI", FakeChatOpenAI),
+            patch("semantic_router.rewrite_queries", return_value=route),
+        ):
+            app = AppTest.from_file(Path(__file__).resolve().parents[1] / "app.py").run()
+            app.segmented_control[0].set_value("Chat").run()
+            app.chat_input[0].set_value(question).run()
+            self.assertFalse(app.exception)
+
+        assistant = app.session_state["messages"][-1]
+        self.assertGreater(FakeVectorStores.calls, 0)
+        for personal_salary_detail in ("үндсэн цалин", "хэдэн төгрөг"):
+            self.assertTrue(
+                all(personal_salary_detail not in query.casefold() for query in FakeVectorStores.queries)
+            )
+            self.assertNotIn(personal_salary_detail, FakeChatOpenAI.calls[-1].casefold())
         self.assertIn("нууцын зэрэглэлтэй", assistant["content"])
         self.assertEqual(assistant["restricted_modules"], ["salary"])
 

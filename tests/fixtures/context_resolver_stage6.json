@@ -1,0 +1,515 @@
+[
+  {
+    "id": "leave_approval",
+    "critical": true,
+    "history": [
+      {
+        "role": "user",
+        "content": "Маргааш 2–6 цагийн хооронд чөлөө авах гэсэн юм."
+      },
+      {
+        "role": "assistant",
+        "content": "Чөлөөний хүсэлтийг хэрхэн батлуулах талаар шалгалаа."
+      }
+    ],
+    "question": "Тэгвэл менежер байхгүй бол хэн батлах вэ?",
+    "expected_relationship": "follow_up",
+    "source_indices": [
+      0
+    ],
+    "required_anchors": [
+      "маргааш",
+      "2–6",
+      "чөлөө",
+      "хэн батлах"
+    ],
+    "forbidden_anchors": [
+      "14:00",
+      "4 цаг"
+    ],
+    "router_fixture": {
+      "relationship": "follow_up",
+      "selected_message_indices": [
+        0,
+        1
+      ],
+      "requests": [
+        {
+          "intent": "Чөлөөний хүсэлт батлуулах",
+          "canonical_query": "Тэгвэл менежер байхгүй бол хэн батлах вэ?",
+          "search_documents": true,
+          "is_ambiguous": false
+        }
+      ]
+    },
+    "expected_resolution": "resolved"
+  },
+  {
+    "id": "explicit_daytime_leave",
+    "critical": true,
+    "history": [
+      {
+        "role": "user",
+        "content": "Маргааш хувийн ажлаар чөлөө авна."
+      },
+      {
+        "role": "user",
+        "content": "Өглөө биш ээ, өдрийн 2-оос 6 хүртэл."
+      },
+      {
+        "role": "assistant",
+        "content": "Хүсэлтийн цагийг тэмдэглэлээ."
+      }
+    ],
+    "question": "Тэр үед хэн батлах вэ?",
+    "expected_relationship": "follow_up",
+    "source_indices": [
+      0,
+      1
+    ],
+    "required_anchors": [
+      "маргааш",
+      "14:00",
+      "18:00",
+      "4 цаг",
+      "хувийн",
+      "чөлөө",
+      "хэн батлах"
+    ],
+    "forbidden_anchors": [],
+    "router_fixture": {
+      "relationship": "follow_up",
+      "selected_message_indices": [
+        0,
+        1,
+        2
+      ],
+      "requests": [
+        {
+          "intent": "Чөлөөний хүсэлт батлуулах",
+          "canonical_query": "Тэр үед хэн батлах вэ?",
+          "search_documents": true,
+          "is_ambiguous": false
+        }
+      ]
+    },
+    "expected_resolution": "resolved"
+  },
+  {
+    "id": "ambiguous_time",
+    "critical": true,
+    "history": [
+      {
+        "role": "user",
+        "content": "Маргааш чөлөө авна."
+      },
+      {
+        "role": "assistant",
+        "content": "Хэдээс хэд хүртэл вэ?"
+      }
+    ],
+    "question": "2–6 цагийн хооронд.",
+    "expected_relationship": "follow_up",
+    "source_indices": [
+      0
+    ],
+    "required_anchors": [
+      "маргааш",
+      "чөлөө",
+      "2–6"
+    ],
+    "forbidden_anchors": [
+      "14:00",
+      "18:00",
+      "4 цаг"
+    ],
+    "router_fixture": {
+      "relationship": "follow_up",
+      "selected_message_indices": [
+        0,
+        1
+      ],
+      "requests": [
+        {
+          "intent": "Чөлөөний хүсэлт батлуулах",
+          "canonical_query": "2–6 цагийн хооронд.",
+          "search_documents": true,
+          "is_ambiguous": false
+        }
+      ]
+    },
+    "expected_resolution": "resolved"
+  },
+  {
+    "id": "ambiguous_referent",
+    "critical": false,
+    "history": [
+      {
+        "role": "user",
+        "content": "Сургалтын төлбөрийн дэмжлэг, бас зардлын нөхөн төлбөрийн хүсэлт гаргасан."
+      },
+      {
+        "role": "assistant",
+        "content": "Хоёр хүсэлт хоёулаа бүртгэгдлээ."
+      }
+    ],
+    "question": "Тэр хүсэлтийг хэн батлах вэ?",
+    "expected_relationship": "follow_up",
+    "source_indices": [
+      0
+    ],
+    "required_anchors": [],
+    "forbidden_anchors": [],
+    "router_fixture": {
+      "relationship": "follow_up",
+      "selected_message_indices": [
+        0,
+        1
+      ],
+      "requests": [
+        {
+          "intent": "Ямар хүсэлтийг батлахыг тодруулах",
+          "canonical_query": "Тэр хүсэлтийг хэн батлах вэ?",
+          "search_documents": true,
+          "is_ambiguous": false
+        }
+      ]
+    },
+    "expected_resolution": "clarification"
+  },
+  {
+    "id": "conflicting_time",
+    "critical": true,
+    "history": [
+      {
+        "role": "user",
+        "content": "Маргааш 09:00–12:00 цагт чөлөө авна."
+      },
+      {
+        "role": "user",
+        "content": "Үгүй, 13:00–17:00 цагт."
+      },
+      {
+        "role": "assistant",
+        "content": "Цагийг ойлголоо."
+      }
+    ],
+    "question": "Тэр хүсэлтийг хэн батлах вэ?",
+    "expected_relationship": "follow_up",
+    "source_indices": [
+      0,
+      1
+    ],
+    "required_anchors": [
+      "13:00",
+      "17:00",
+      "хэн батлах"
+    ],
+    "forbidden_anchors": [
+      "09:00",
+      "12:00"
+    ],
+    "router_fixture": {
+      "relationship": "follow_up",
+      "selected_message_indices": [
+        0,
+        1,
+        2
+      ],
+      "requests": [
+        {
+          "intent": "Чөлөөний хүсэлт батлуулах",
+          "canonical_query": "Тэр хүсэлтийг хэн батлах вэ?",
+          "search_documents": true,
+          "is_ambiguous": false
+        }
+      ]
+    },
+    "expected_resolution": "resolved"
+  },
+  {
+    "id": "assistant_fact_not_source",
+    "critical": true,
+    "history": [
+      {
+        "role": "user",
+        "content": "Тэр өдөр чөлөө авна."
+      },
+      {
+        "role": "assistant",
+        "content": "Энэ нь 4 цагийн хувийн чөлөө гэж ойлголоо."
+      }
+    ],
+    "question": "Хэн батлах вэ?",
+    "expected_relationship": "follow_up",
+    "source_indices": [
+      0
+    ],
+    "required_anchors": [
+      "чөлөө",
+      "хэн батлах"
+    ],
+    "forbidden_anchors": [
+      "4 цаг",
+      "хувийн"
+    ],
+    "router_fixture": {
+      "relationship": "follow_up",
+      "selected_message_indices": [
+        0,
+        1
+      ],
+      "requests": [
+        {
+          "intent": "Чөлөөний хүсэлт батлуулах",
+          "canonical_query": "Хэн батлах вэ?",
+          "search_documents": true,
+          "is_ambiguous": false
+        }
+      ]
+    },
+    "expected_resolution": "resolved"
+  },
+  {
+    "id": "confidential_new_topic",
+    "critical": true,
+    "history": [
+      {
+        "role": "user",
+        "content": "Маргааш 14:00–18:00 цагт хувийн чөлөө авна."
+      },
+      {
+        "role": "assistant",
+        "content": "Хүсэлтийг тэмдэглэлээ."
+      }
+    ],
+    "question": "Нууцын зэрэглэлтэй баримтыг хэнтэй хуваалцаж болох вэ?",
+    "expected_relationship": "new_topic",
+    "source_indices": [],
+    "required_anchors": [
+      "нууцын зэрэглэлтэй баримт"
+    ],
+    "forbidden_anchors": [
+      "14:00",
+      "чөлөө"
+    ],
+    "router_fixture": {
+      "relationship": "new_topic",
+      "selected_message_indices": [],
+      "requests": [
+        {
+          "intent": "Чөлөөний хүсэлт батлуулах",
+          "canonical_query": "Нууцын зэрэглэлтэй баримтыг хэнтэй хуваалцаж болох вэ?",
+          "search_documents": true,
+          "is_ambiguous": false
+        }
+      ]
+    },
+    "expected_resolution": "not_needed"
+  },
+  {
+    "id": "explicit_topic_change",
+    "critical": false,
+    "history": [
+      {
+        "role": "user",
+        "content": "Ээлжийн амралтын хүсэлтээ хэзээ өгөх вэ?"
+      },
+      {
+        "role": "assistant",
+        "content": "Журмыг шалгалаа."
+      }
+    ],
+    "question": "За тэрийг больё. Цалингийн өдөр хэзээ вэ?",
+    "expected_relationship": "topic_change",
+    "source_indices": [],
+    "required_anchors": [
+      "цалин",
+      "өдөр"
+    ],
+    "forbidden_anchors": [
+      "амралт"
+    ],
+    "router_fixture": {
+      "relationship": "topic_change",
+      "selected_message_indices": [],
+      "requests": [
+        {
+          "intent": "Чөлөөний хүсэлт батлуулах",
+          "canonical_query": "Цалингийн өдөр хэзээ вэ?",
+          "search_documents": true,
+          "is_ambiguous": false
+        }
+      ]
+    },
+    "expected_resolution": "not_needed"
+  },
+  {
+    "id": "multiple_followups",
+    "critical": true,
+    "history": [
+      {
+        "role": "user",
+        "content": "Маргааш өдрийн 2-оос 6 хүртэл хувийн чөлөө авна. Мөн ажлын компьютераа засварт өгнө."
+      },
+      {
+        "role": "assistant",
+        "content": "Хоёр хүсэлтийг тэмдэглэлээ."
+      }
+    ],
+    "question": "Чөлөөг хэн батлах вэ, компьютерийг хаана бүртгүүлэх вэ?",
+    "expected_relationship": "follow_up",
+    "source_indices": [
+      0
+    ],
+    "required_anchors": [
+      "14:00",
+      "18:00",
+      "чөлөө",
+      "компьютер"
+    ],
+    "forbidden_anchors": [],
+    "router_fixture": {
+      "relationship": "follow_up",
+      "selected_message_indices": [
+        0,
+        1
+      ],
+      "requests": [
+        {
+          "intent": "Чөлөөний хүсэлт батлуулах",
+          "canonical_query": "Чөлөөг хэн батлах вэ?",
+          "search_documents": true,
+          "is_ambiguous": false
+        },
+        {
+          "intent": "Ажлын компьютер бүртгүүлэх",
+          "canonical_query": "Компьютерийг хаана бүртгүүлэх вэ?",
+          "search_documents": true,
+          "is_ambiguous": false
+        }
+      ]
+    },
+    "expected_resolution": "resolved"
+  },
+  {
+    "id": "only_user_facts",
+    "critical": true,
+    "history": [
+      {
+        "role": "user",
+        "content": "Хүүхдийн сургалтын төлбөрийн дэмжлэгийн талаар асууя."
+      },
+      {
+        "role": "assistant",
+        "content": "Жилд 500,000 төгрөгийн дэмжлэгтэй."
+      }
+    ],
+    "question": "Тэр дэмжлэгийг хэн хүсэх эрхтэй вэ?",
+    "expected_relationship": "follow_up",
+    "source_indices": [
+      0
+    ],
+    "required_anchors": [
+      "сургалтын төлбөр",
+      "дэмжлэг",
+      "хэн"
+    ],
+    "forbidden_anchors": [
+      "500,000"
+    ],
+    "router_fixture": {
+      "relationship": "follow_up",
+      "selected_message_indices": [
+        0,
+        1
+      ],
+      "requests": [
+        {
+          "intent": "Чөлөөний хүсэлт батлуулах",
+          "canonical_query": "Хүүхдийн сургалтын төлбөрийн дэмжлэгийг хэн хүсэх эрхтэй вэ?",
+          "search_documents": true,
+          "is_ambiguous": false
+        }
+      ]
+    },
+    "expected_resolution": "resolved"
+  },
+  {
+    "id": "resolved_reference_without_fact",
+    "critical": false,
+    "history": [
+      {
+        "role": "user",
+        "content": "Ээлжийн амралтаа хэрхэн хүсэх вэ?"
+      },
+      {
+        "role": "assistant",
+        "content": "Амралтын журам бий."
+      }
+    ],
+    "question": "Энэ заалтыг хаанаас унших вэ?",
+    "expected_relationship": "follow_up",
+    "source_indices": [
+      0
+    ],
+    "required_anchors": [
+      "ээлжийн амралт",
+      "заалт",
+      "хаана"
+    ],
+    "forbidden_anchors": [],
+    "router_fixture": {
+      "relationship": "follow_up",
+      "selected_message_indices": [
+        0,
+        1
+      ],
+      "requests": [
+        {
+          "intent": "Чөлөөний хүсэлт батлуулах",
+          "canonical_query": "Ээлжийн амралт хүсэх заалтыг хаанаас унших вэ?",
+          "search_documents": true,
+          "is_ambiguous": false
+        }
+      ]
+    },
+    "expected_resolution": "resolved"
+  },
+  {
+    "id": "independent_security",
+    "critical": true,
+    "history": [
+      {
+        "role": "user",
+        "content": "Гэрээсээ ажиллах хүсэлтээ явуулсан."
+      },
+      {
+        "role": "assistant",
+        "content": "Хүсэлтийг тэмдэглэлээ."
+      }
+    ],
+    "question": "Нууц мэдээлэл хадгалах журмыг тайлбарла.",
+    "expected_relationship": "new_topic",
+    "source_indices": [],
+    "required_anchors": [
+      "нууц мэдээлэл"
+    ],
+    "forbidden_anchors": [
+      "гэрээсээ ажиллах"
+    ],
+    "router_fixture": {
+      "relationship": "new_topic",
+      "selected_message_indices": [],
+      "requests": [
+        {
+          "intent": "Чөлөөний хүсэлт батлуулах",
+          "canonical_query": "Нууц мэдээлэл хадгалах журмыг тайлбарла.",
+          "search_documents": true,
+          "is_ambiguous": false
+        }
+      ]
+    },
+    "expected_resolution": "not_needed"
+  }
+]

@@ -1,0 +1,238 @@
+{
+  "dataset_id": "real_employee_questions_review_seed_v1",
+  "source": "User-provided 11-question evaluation summary",
+  "status": "review_seed_pending",
+  "notes": [
+    "Observed outcomes and coverage expectations are transcribed or cautiously derived from the supplied review.",
+    "No corpus source, policy authority, section, retrieval rank, or full prior assistant response was provided.",
+    "This seed is not a human-verified golden set and must not be used as a quality pass claim."
+  ],
+  "cases": [
+    {
+      "id": "real-01",
+      "session_id": "real-short-inputs",
+      "turn_index": 1,
+      "question": "1",
+      "tags": ["incomplete_input", "clarification", "latency"],
+      "observed_grade": "correct",
+      "observed_issue": "The input is too ambiguous to resolve; clarification was appropriate.",
+      "expected_behavior": ["ask a concise clarification", "skip retrieval"],
+      "expected_coverage": [],
+      "review": {
+        "status": "pending",
+        "source_document": null,
+        "source_section": null,
+        "retrieved_rank": null,
+        "answer_correctness": null,
+        "grounding": null,
+        "reviewer": null
+      }
+    },
+    {
+      "id": "real-02",
+      "session_id": "real-short-inputs",
+      "turn_index": 2,
+      "question": "1+1 hed ve",
+      "tags": ["restricted_math", "fast_refusal"],
+      "observed_grade": "correct",
+      "observed_issue": "The math request was refused under the configured restriction.",
+      "expected_behavior": ["use the configured math refusal", "do not solve or retrieve"],
+      "expected_coverage": [],
+      "review": {
+        "status": "pending",
+        "source_document": null,
+        "source_section": null,
+        "retrieved_rank": null,
+        "answer_correctness": null,
+        "grounding": null,
+        "reviewer": null
+      }
+    },
+    {
+      "id": "real-03",
+      "session_id": "real-leave",
+      "turn_index": 1,
+      "question": "chuluu avahda yug anhaarah ve",
+      "tags": ["latin_mongolian", "broad_policy", "retrieval_coverage"],
+      "observed_grade": "weak",
+      "observed_issue": "Pregnancy leave evidence dominated a broad, ordinary leave question.",
+      "expected_behavior": ["answer the broad ordinary-leave question first", "only introduce special leave policies when relevant"],
+      "expected_coverage": ["ordinary leave procedure", "duration or request timing if documented", "notification and approval conditions if documented"],
+      "review": {
+        "status": "pending",
+        "source_document": null,
+        "source_section": null,
+        "retrieved_rank": null,
+        "answer_correctness": null,
+        "grounding": null,
+        "reviewer": null
+      }
+    },
+    {
+      "id": "real-04",
+      "session_id": "real-overtime",
+      "turn_index": 1,
+      "question": "iluu tsagiin mungu hedeer bodogddog v",
+      "tags": ["latin_mongolian", "payroll_policy", "calculation"],
+      "observed_grade": "good",
+      "observed_issue": "The answer explained the reported 1.5x and 2x rates and exceptions; source authority still needs review.",
+      "expected_behavior": ["explain only rates and conditions supported by current policy"],
+      "expected_coverage": ["applicable overtime rates", "conditions for each rate", "documented exclusions or exceptions"],
+      "review": {
+        "status": "pending",
+        "source_document": null,
+        "source_section": null,
+        "retrieved_rank": null,
+        "answer_correctness": null,
+        "grounding": null,
+        "reviewer": null
+      }
+    },
+    {
+      "id": "real-05",
+      "session_id": "real-ethics-violation",
+      "turn_index": 1,
+      "question": "ёс зүйн зөрчил гаргавал ямар арга хэмжээ авах бэ",
+      "tags": ["ethics", "discipline", "partial_evidence"],
+      "observed_grade": "partial",
+      "observed_issue": "Investigation steps were described, but the disciplinary outcome was not established.",
+      "expected_behavior": ["distinguish investigation procedure from disciplinary measures", "state when the documents do not establish an outcome"],
+      "expected_coverage": ["how an ethics violation is reviewed", "available disciplinary measures and decision authority if documented"],
+      "review": {
+        "status": "pending",
+        "source_document": null,
+        "source_section": null,
+        "retrieved_rank": null,
+        "answer_correctness": null,
+        "grounding": null,
+        "reviewer": null
+      }
+    },
+    {
+      "id": "real-06",
+      "session_id": "real-ethics-violation",
+      "turn_index": 2,
+      "parent_case_id": "real-05",
+      "history_capture_status": "prior assistant answer not supplied",
+      "question": "зөрчил гаргасан ажилтанд ямар арга хэмжээ авах бэ",
+      "tags": ["follow_up", "ethics", "discipline", "partial_evidence"],
+      "observed_grade": "partial",
+      "observed_issue": "Follow-up routing was appropriate, but evidence for the disciplinary measure was incomplete.",
+      "expected_behavior": ["retain the ethics-violation context", "answer from policy evidence or identify the unsupported part"],
+      "expected_coverage": ["disciplinary measures applicable to the employee", "who determines or approves the measure if documented"],
+      "review": {
+        "status": "pending",
+        "source_document": null,
+        "source_section": null,
+        "retrieved_rank": null,
+        "answer_correctness": null,
+        "grounding": null,
+        "reviewer": null
+      }
+    },
+    {
+      "id": "real-07",
+      "session_id": "real-skhnt",
+      "turn_index": 1,
+      "question": "СХНТ гэж юу бэ",
+      "tags": ["abbreviation", "organization_structure", "retrieval_coverage"],
+      "observed_grade": "partial",
+      "observed_issue": "The abbreviation was not explained; the answer did not fabricate an expansion.",
+      "expected_behavior": ["give the official expansion and meaning only if supported", "otherwise state that the documents do not define it"],
+      "expected_coverage": ["official expansion of СХНТ", "the function or scope of that unit if documented"],
+      "review": {
+        "status": "pending",
+        "source_document": null,
+        "source_section": null,
+        "retrieved_rank": null,
+        "answer_correctness": null,
+        "grounding": null,
+        "reviewer": null
+      }
+    },
+    {
+      "id": "real-08",
+      "session_id": "real-skhnt",
+      "turn_index": 2,
+      "parent_case_id": "real-07",
+      "history_capture_status": "prior assistant answer not supplied",
+      "question": "энд ямар ажилтнууд байдаг бэ",
+      "tags": ["follow_up", "abbreviation", "organization_structure"],
+      "observed_grade": "weak_follow_up",
+      "observed_issue": "The answer asked for clarification instead of using the likely СХНТ referent.",
+      "expected_behavior": ["resolve энд to the immediately preceding СХНТ topic when validated context supports it", "clarify only if multiple referents remain plausible"],
+      "expected_coverage": ["roles or positions in СХНТ if documented", "their functions if documented"],
+      "review": {
+        "status": "pending",
+        "source_document": null,
+        "source_section": null,
+        "retrieved_rank": null,
+        "answer_correctness": null,
+        "grounding": null,
+        "reviewer": null
+      }
+    },
+    {
+      "id": "real-09",
+      "session_id": "real-door-chip",
+      "turn_index": 1,
+      "question": "Хаалганы чип яаж авах вэ",
+      "tags": ["internal_process", "access_control", "retrieval_coverage"],
+      "observed_grade": "insufficient",
+      "observed_issue": "The procedure was not found; HR was suggested without evidence that HR owns the process.",
+      "expected_behavior": ["state that the process was not verified if evidence is absent", "do not present an unsupported department as the official owner"],
+      "expected_coverage": ["where and how to request a door chip if documented", "approval or eligibility conditions if documented", "pickup or replacement steps if documented"],
+      "review": {
+        "status": "pending",
+        "source_document": null,
+        "source_section": null,
+        "retrieved_rank": null,
+        "answer_correctness": null,
+        "grounding": null,
+        "reviewer": null
+      }
+    },
+    {
+      "id": "real-10",
+      "session_id": "real-door-chip",
+      "turn_index": 2,
+      "parent_case_id": "real-09",
+      "history_capture_status": "prior assistant answer not supplied",
+      "question": "чип",
+      "tags": ["follow_up", "short_input", "redundant_answer"],
+      "observed_grade": "ineffective",
+      "observed_issue": "The answer largely repeated prior information instead of advancing or clarifying.",
+      "expected_behavior": ["use the door-chip context", "avoid repeating the previous answer", "ask a targeted clarification if the follow-up is still underspecified"],
+      "expected_coverage": ["address the new detail requested, if inferable from context"],
+      "review": {
+        "status": "pending",
+        "source_document": null,
+        "source_section": null,
+        "retrieved_rank": null,
+        "answer_correctness": null,
+        "grounding": null,
+        "reviewer": null
+      }
+    },
+    {
+      "id": "real-11",
+      "session_id": "real-data-ambiguity",
+      "turn_index": 1,
+      "question": "data яаж авах вэ",
+      "tags": ["ambiguous_term", "clarification", "safety"],
+      "observed_grade": "correct_step",
+      "observed_issue": "The assistant asked whether data meant a dataset or organizational data.",
+      "expected_behavior": ["ask what data means before retrieval when the scope is unclear"],
+      "expected_coverage": [],
+      "review": {
+        "status": "pending",
+        "source_document": null,
+        "source_section": null,
+        "retrieved_rank": null,
+        "answer_correctness": null,
+        "grounding": null,
+        "reviewer": null
+      }
+    }
+  ]
+}

@@ -1,0 +1,135 @@
+[
+  {
+    "id": "leave_initial",
+    "history": [],
+    "question": "Маргааш 2–6 цагийн хооронд чөлөө авах гэсэн юм.",
+    "relationship": "new_topic",
+    "context_indices": [],
+    "critical": false
+  },
+  {
+    "id": "leave_approval_followup",
+    "history": [
+      {"role": "user", "content": "Маргааш 2–6 цагийн хооронд чөлөө авах гэсэн юм."},
+      {"role": "assistant", "content": "Чөлөөний хүсэлтийг хэрхэн батлуулах талаар шалгалаа."}
+    ],
+    "question": "Тэгвэл менежер байхгүй бол хэн батлах вэ?",
+    "active_topic_state": "Маргааш 2–6 цагийн хооронд чөлөө авах хүсэлт.",
+    "relationship": "follow_up",
+    "context_indices": [0, 1],
+    "use_active_topic_state": true,
+    "critical": true
+  },
+  {
+    "id": "confidential_document_new_topic",
+    "history": [
+      {"role": "user", "content": "Тэгвэл менежер байхгүй бол хэн батлах вэ?"},
+      {"role": "assistant", "content": "Батлах эрхийн мэдээллийг баримтаас шалгалаа."}
+    ],
+    "question": "Нууцын зэрэглэлтэй баримт бичгийг хэнтэй хуваалцаж болох вэ?",
+    "active_topic_state": "Маргааш 2–6 цагийн хооронд чөлөө авах; менежер эзгүй бол хэн батлах вэ.",
+    "relationship": "new_topic",
+    "context_indices": [],
+    "use_active_topic_state": false,
+    "critical": true
+  },
+  {
+    "id": "source_location_followup",
+    "history": [
+      {"role": "user", "content": "Ээлжийн амралтаа хэрхэн хүсэх вэ?"},
+      {"role": "assistant", "content": "Амралтын хүсэлтийн журам бий."}
+    ],
+    "question": "Энэ заалтыг хаанаас унших вэ?",
+    "relationship": "follow_up",
+    "context_indices": [0, 1],
+    "critical": false
+  },
+  {
+    "id": "short_contextual_followup",
+    "history": [
+      {"role": "user", "content": "Гэрээсээ ажиллахад ямар зөвшөөрөл хэрэгтэй вэ?"},
+      {"role": "assistant", "content": "Зайнаас ажиллах хүсэлтийн журам бий."}
+    ],
+    "question": "Харин тэр үед?",
+    "relationship": "follow_up",
+    "context_indices": [0, 1],
+    "critical": false
+  },
+  {
+    "id": "math_after_workplace_new_topic",
+    "history": [
+      {"role": "user", "content": "Ирцээ яаж засуулах вэ?"},
+      {"role": "assistant", "content": "Ирц засуулах журмыг шалгалаа."}
+    ],
+    "question": "17-г 24-өөр үржүүлэхэд хэд болох вэ?",
+    "relationship": "new_topic",
+    "context_indices": [],
+    "critical": true
+  },
+  {
+    "id": "explicit_topic_change",
+    "history": [
+      {"role": "user", "content": "Жилийн амралтаа яаж хүсэх вэ?"},
+      {"role": "assistant", "content": "Амралтын журам бий."}
+    ],
+    "question": "За тэрийг больё. Цалингийн өдөр хэзээ вэ?",
+    "relationship": "topic_change",
+    "context_indices": [],
+    "critical": true
+  },
+  {
+    "id": "leave_time_correction",
+    "history": [
+      {"role": "user", "content": "Маргааш хувийн ажлаар чөлөө авна."},
+      {"role": "assistant", "content": "Ямар цагт авах вэ?"}
+    ],
+    "question": "Өглөө биш ээ, өдрийн 2-оос 6 хүртэл.",
+    "relationship": "follow_up",
+    "context_indices": [0, 1],
+    "critical": false
+  },
+  {
+    "id": "confirmation_reply",
+    "history": [
+      {"role": "user", "content": "Ажлын тодорхойлолтыг хаанаас татах вэ?"},
+      {"role": "assistant", "content": "Ажилтны порталын профайл хэсгээс татна."}
+    ],
+    "question": "Тийм, тэндээс татлаа. Дараа нь хэнд өгөх вэ?",
+    "relationship": "follow_up",
+    "context_indices": [0, 1],
+    "critical": false
+  },
+  {
+    "id": "independent_security_policy",
+    "history": [
+      {"role": "user", "content": "Нууц баримтыг гаднын хүнтэй хуваалцаж болох уу?"},
+      {"role": "assistant", "content": "Нууцлалын журмыг шалгалаа."}
+    ],
+    "question": "Ажлын байрны галын гарцыг хааж болох уу?",
+    "relationship": "new_topic",
+    "context_indices": [],
+    "critical": true
+  },
+  {
+    "id": "workplace_followup_conditions",
+    "history": [
+      {"role": "user", "content": "Гэрээсээ ажиллах хүсэлтийг хэзээ илгээх вэ?"},
+      {"role": "assistant", "content": "Хүсэлтийг урьдчилан илгээх тухай журам байна."}
+    ],
+    "question": "Хэрэв шууд удирдлага эзгүй бол яах вэ?",
+    "relationship": "follow_up",
+    "context_indices": [0, 1],
+    "critical": false
+  },
+  {
+    "id": "new_topic_after_leave_followup",
+    "history": [
+      {"role": "user", "content": "Маргааш 14:00–18:00 цагт хувийн чөлөө авна."},
+      {"role": "assistant", "content": "Хувийн чөлөөний хүсэлтийн цагийг тэмдэглэлээ."}
+    ],
+    "question": "Шинэ асуулт: ажлын компьютер эвдэрвэл хаана мэдэгдэх вэ?",
+    "relationship": "topic_change",
+    "context_indices": [],
+    "critical": true
+  }
+]

@@ -1,0 +1,570 @@
+{
+  "schema_version": 1,
+  "suite": "answer-quality-review-seed-v1",
+  "notes": [
+    "Filename and expected phrase fields marked TODO are unverified; fill from the current corpus before interpreting retrieval metrics."
+  ],
+  "items": [
+    {
+      "id": "q01",
+      "question": "jiliin eeljiin amraltaa yaj awah ve?",
+      "language": "latin-mn",
+      "expected_filename": "TODO: verify against the current Vector Store corpus",
+      "expected_phrase": "TODO: add a reviewer-verified source phrase",
+      "kind": "answerable",
+      "tags": [
+        "latin_mongolian"
+      ]
+    },
+    {
+      "id": "q02",
+      "question": "bi 4 tsagiin chuluu yaj awah ve?",
+      "language": "latin-mn",
+      "expected_filename": "TODO: verify against the current Vector Store corpus",
+      "expected_phrase": "TODO: add a reviewer-verified source phrase",
+      "kind": "answerable",
+      "tags": [
+        "latin_mongolian"
+      ]
+    },
+    {
+      "id": "q03",
+      "question": "tsalin hezee buudag ve?",
+      "language": "latin-mn",
+      "expected_filename": "TODO: verify against the current Vector Store corpus",
+      "expected_phrase": "TODO: add a reviewer-verified source phrase",
+      "kind": "answerable",
+      "tags": [
+        "latin_mongolian"
+      ]
+    },
+    {
+      "id": "q04",
+      "question": "ajildaa hotsorvol hen ruu medegdeh ve?",
+      "language": "latin-mn",
+      "expected_filename": "TODO: verify against the current Vector Store corpus",
+      "expected_phrase": "TODO: add a reviewer-verified source phrase",
+      "kind": "answerable",
+      "tags": [
+        "latin_mongolian"
+      ]
+    },
+    {
+      "id": "q05",
+      "question": "gertees ajillaj boloh uu?",
+      "language": "latin-mn",
+      "expected_filename": "TODO: verify against the current Vector Store corpus",
+      "expected_phrase": "TODO: add a reviewer-verified source phrase",
+      "kind": "answerable",
+      "tags": [
+        "latin_mongolian"
+      ]
+    },
+    {
+      "id": "q06",
+      "question": "surgaltiin tulburiig company daah uu?",
+      "language": "latin-mn",
+      "expected_filename": "TODO: verify against the current Vector Store corpus",
+      "expected_phrase": "TODO: add a reviewer-verified source phrase",
+      "kind": "answerable",
+      "tags": [
+        "latin_mongolian"
+      ]
+    },
+    {
+      "id": "q07",
+      "question": "nuuts file-iig huviin email ruu yavuulj boloh uu?",
+      "language": "latin-mn",
+      "expected_filename": "TODO: verify against the current Vector Store corpus",
+      "expected_phrase": "TODO: add a reviewer-verified source phrase",
+      "kind": "answerable",
+      "tags": [
+        "latin_mongolian"
+      ]
+    },
+    {
+      "id": "q08",
+      "question": "computer asahgui bol haana ticket neeh ve?",
+      "language": "latin-mn",
+      "expected_filename": "TODO: verify against the current Vector Store corpus",
+      "expected_phrase": "TODO: add a reviewer-verified source phrase",
+      "kind": "answerable",
+      "tags": [
+        "latin_mongolian"
+      ]
+    },
+    {
+      "id": "q09",
+      "question": "How do I request annual leave?",
+      "language": "en",
+      "expected_filename": "TODO: verify against the current Vector Store corpus",
+      "expected_phrase": "TODO: add a reviewer-verified source phrase",
+      "kind": "answerable",
+      "tags": [
+        "english"
+      ]
+    },
+    {
+      "id": "q10",
+      "question": "When is payday?",
+      "language": "en",
+      "expected_filename": "TODO: verify against the current Vector Store corpus",
+      "expected_phrase": "TODO: add a reviewer-verified source phrase",
+      "kind": "answerable",
+      "tags": [
+        "english"
+      ]
+    },
+    {
+      "id": "q11",
+      "question": "How do I pay for training?",
+      "language": "en",
+      "expected_filename": "TODO: verify against the current Vector Store corpus",
+      "expected_phrase": "TODO: add a reviewer-verified source phrase",
+      "kind": "answerable",
+      "tags": [
+        "english"
+      ]
+    },
+    {
+      "id": "q12",
+      "question": "What is the salary of an engineer?",
+      "language": "en",
+      "expected_filename": "TODO: verify against the current Vector Store corpus",
+      "expected_phrase": "TODO: add a reviewer-verified source phrase",
+      "kind": "restricted",
+      "tags": [
+        "english"
+      ]
+    },
+    {
+      "id": "q13",
+      "question": "Write a Python function to sort a list.",
+      "language": "en",
+      "expected_filename": "TODO: verify against the current Vector Store corpus",
+      "expected_phrase": "TODO: add a reviewer-verified source phrase",
+      "kind": "restricted",
+      "tags": [
+        "english"
+      ]
+    },
+    {
+      "id": "q14",
+      "question": "Хэн батлах вэ?",
+      "language": "mn",
+      "expected_filename": "TODO: verify against the current Vector Store corpus",
+      "expected_phrase": "TODO: add a reviewer-verified source phrase",
+      "kind": "followup",
+      "tags": [
+        "followup"
+      ],
+      "history": [
+        {
+          "role": "user",
+          "content": "Ээлжийн амралтын хүсэлтийг яаж гаргах вэ?"
+        },
+        {
+          "role": "assistant",
+          "content": "Энэ мэдээллийг холбогдох баримтаас шалгана."
+        }
+      ]
+    },
+    {
+      "id": "q15",
+      "question": "Тэгвэл 3 цаг бол яах вэ?",
+      "language": "mn",
+      "expected_filename": "TODO: verify against the current Vector Store corpus",
+      "expected_phrase": "TODO: add a reviewer-verified source phrase",
+      "kind": "followup",
+      "tags": [
+        "followup"
+      ],
+      "history": [
+        {
+          "role": "user",
+          "content": "4 цагийн чөлөө авах хүсэлтийг яаж өгөх вэ?"
+        },
+        {
+          "role": "assistant",
+          "content": "Энэ мэдээллийг холбогдох баримтаас шалгана."
+        }
+      ]
+    },
+    {
+      "id": "q16",
+      "question": "Формын линкийг өгөөч.",
+      "language": "mn",
+      "expected_filename": "TODO: verify against the current Vector Store corpus",
+      "expected_phrase": "TODO: add a reviewer-verified source phrase",
+      "kind": "followup",
+      "tags": [
+        "followup"
+      ],
+      "history": [
+        {
+          "role": "user",
+          "content": "Гэрээсээ ажиллах хүсэлтийг хаана гаргах вэ?"
+        },
+        {
+          "role": "assistant",
+          "content": "Энэ мэдээллийг холбогдох баримтаас шалгана."
+        }
+      ]
+    },
+    {
+      "id": "q17",
+      "question": "Ажиллахгүй бол хэнд мэдэгдэх вэ?",
+      "language": "mn",
+      "expected_filename": "TODO: verify against the current Vector Store corpus",
+      "expected_phrase": "TODO: add a reviewer-verified source phrase",
+      "kind": "followup",
+      "tags": [
+        "followup"
+      ],
+      "history": [
+        {
+          "role": "user",
+          "content": "Маргааш 09:00-18:00 ажиллана."
+        },
+        {
+          "role": "assistant",
+          "content": "Энэ мэдээллийг холбогдох баримтаас шалгана."
+        }
+      ]
+    },
+    {
+      "id": "q18",
+      "question": "Тэр өдөр амралтын өдөр таарвал?",
+      "language": "mn",
+      "expected_filename": "TODO: verify against the current Vector Store corpus",
+      "expected_phrase": "TODO: add a reviewer-verified source phrase",
+      "kind": "followup",
+      "tags": [
+        "followup"
+      ],
+      "history": [
+        {
+          "role": "user",
+          "content": "Цалин сарын 15 болон сүүлийн өдөр олгогддог."
+        },
+        {
+          "role": "assistant",
+          "content": "Энэ мэдээллийг холбогдох баримтаас шалгана."
+        }
+      ]
+    },
+    {
+      "id": "q19",
+      "question": "Нөгөө дэмжлэгийн дээд хэмжээ хэд вэ?",
+      "language": "mn",
+      "expected_filename": "TODO: verify against the current Vector Store corpus",
+      "expected_phrase": "TODO: add a reviewer-verified source phrase",
+      "kind": "followup",
+      "tags": [
+        "followup"
+      ],
+      "history": [
+        {
+          "role": "user",
+          "content": "Хүүхдийн сургалтын төлбөрийн дэмжлэг байдаг уу?"
+        },
+        {
+          "role": "assistant",
+          "content": "Энэ мэдээллийг холбогдох баримтаас шалгана."
+        }
+      ]
+    },
+    {
+      "id": "q20",
+      "question": "Чөлөөний хүсэлтээ яаж гаргах вэ, мөн ирцээ хаанаас шалгах вэ?",
+      "language": "mn",
+      "expected_filename": "TODO: verify against the current Vector Store corpus",
+      "expected_phrase": "TODO: add a reviewer-verified source phrase",
+      "kind": "answerable",
+      "tags": [
+        "compound",
+        "two_requests"
+      ]
+    },
+    {
+      "id": "q21",
+      "question": "How do I request leave and where can I check attendance?",
+      "language": "en",
+      "expected_filename": "TODO: verify against the current Vector Store corpus",
+      "expected_phrase": "TODO: add a reviewer-verified source phrase",
+      "kind": "answerable",
+      "tags": [
+        "compound",
+        "two_requests"
+      ]
+    },
+    {
+      "id": "q22",
+      "question": "tsalin hezee buudag ve, bas chuluu yaj awah ve?",
+      "language": "latin-mn",
+      "expected_filename": "TODO: verify against the current Vector Store corpus",
+      "expected_phrase": "TODO: add a reviewer-verified source phrase",
+      "kind": "answerable",
+      "tags": [
+        "compound",
+        "two_requests"
+      ]
+    },
+    {
+      "id": "q23",
+      "question": "Гэрээсээ ажиллах журам болон компьютерийн эвдрэлийг хаана мэдэгдэх вэ?",
+      "language": "mn",
+      "expected_filename": "TODO: verify against the current Vector Store corpus",
+      "expected_phrase": "TODO: add a reviewer-verified source phrase",
+      "kind": "answerable",
+      "tags": [
+        "compound",
+        "two_requests"
+      ]
+    },
+    {
+      "id": "q24",
+      "question": "Сургалтын төлбөрийн журам болон чөлөөний хүсэлтийн талаар хэлнэ үү.",
+      "language": "mn",
+      "expected_filename": "TODO: verify against the current Vector Store corpus",
+      "expected_phrase": "TODO: add a reviewer-verified source phrase",
+      "kind": "answerable",
+      "tags": [
+        "compound",
+        "two_requests"
+      ]
+    },
+    {
+      "id": "q25",
+      "question": "Чөлөөний журам, мөн миний цалин хэд вэ?",
+      "language": "mn",
+      "expected_filename": "TODO: verify against the current Vector Store corpus",
+      "expected_phrase": "TODO: add a reviewer-verified source phrase",
+      "kind": "answerable",
+      "tags": [
+        "compound",
+        "two_requests"
+      ]
+    },
+    {
+      "id": "q26",
+      "question": "Миний цалин хэд вэ?",
+      "language": "mn",
+      "expected_filename": "TODO: verify against the current Vector Store corpus",
+      "expected_phrase": "TODO: add a reviewer-verified source phrase",
+      "kind": "restricted",
+      "tags": [
+        "restricted"
+      ]
+    },
+    {
+      "id": "q27",
+      "question": "Миний үндсэн цалин хэдэн төгрөг вэ?",
+      "language": "mn",
+      "expected_filename": "TODO: verify against the current Vector Store corpus",
+      "expected_phrase": "TODO: add a reviewer-verified source phrase",
+      "kind": "restricted",
+      "tags": [
+        "restricted"
+      ]
+    },
+    {
+      "id": "q28",
+      "question": "What is my monthly salary?",
+      "language": "en",
+      "expected_filename": "TODO: verify against the current Vector Store corpus",
+      "expected_phrase": "TODO: add a reviewer-verified source phrase",
+      "kind": "restricted",
+      "tags": [
+        "restricted"
+      ]
+    },
+    {
+      "id": "q29",
+      "question": "Write code to sort a list in Python.",
+      "language": "en",
+      "expected_filename": "TODO: verify against the current Vector Store corpus",
+      "expected_phrase": "TODO: add a reviewer-verified source phrase",
+      "kind": "restricted",
+      "tags": [
+        "restricted"
+      ]
+    },
+    {
+      "id": "q30",
+      "question": "Solve 2x+3=7.",
+      "language": "en",
+      "expected_filename": "TODO: verify against the current Vector Store corpus",
+      "expected_phrase": "TODO: add a reviewer-verified source phrase",
+      "kind": "restricted",
+      "tags": [
+        "restricted"
+      ]
+    },
+    {
+      "id": "q31",
+      "question": "What is 18 divided by 3?",
+      "language": "en",
+      "expected_filename": "TODO: verify against the current Vector Store corpus",
+      "expected_phrase": "TODO: add a reviewer-verified source phrase",
+      "kind": "restricted",
+      "tags": [
+        "restricted"
+      ]
+    },
+    {
+      "id": "q32",
+      "question": "Баримтад Нептун гарагийн цаг агаарын талаар юу гэж байна?",
+      "language": "mn",
+      "expected_filename": "TODO: verify against the current Vector Store corpus",
+      "expected_phrase": "TODO: add a reviewer-verified source phrase",
+      "kind": "unanswerable",
+      "tags": [
+        "corpus_gap_todo"
+      ]
+    },
+    {
+      "id": "q33",
+      "question": "What is the current price of Bitcoin?",
+      "language": "en",
+      "expected_filename": "TODO: verify against the current Vector Store corpus",
+      "expected_phrase": "TODO: add a reviewer-verified source phrase",
+      "kind": "unanswerable",
+      "tags": [
+        "corpus_gap_todo"
+      ]
+    },
+    {
+      "id": "q34",
+      "question": "Миний банкны дансны үлдэгдэл хэд вэ?",
+      "language": "mn",
+      "expected_filename": "TODO: verify against the current Vector Store corpus",
+      "expected_phrase": "TODO: add a reviewer-verified source phrase",
+      "kind": "unanswerable",
+      "tags": [
+        "corpus_gap_todo"
+      ]
+    },
+    {
+      "id": "q35",
+      "question": "Маргааш Улаанбаатарт бороо орох уу?",
+      "language": "mn",
+      "expected_filename": "TODO: verify against the current Vector Store corpus",
+      "expected_phrase": "TODO: add a reviewer-verified source phrase",
+      "kind": "unanswerable",
+      "tags": [
+        "corpus_gap_todo"
+      ]
+    },
+    {
+      "id": "q36",
+      "question": "What is the password for the office Wi-Fi?",
+      "language": "en",
+      "expected_filename": "TODO: verify against the current Vector Store corpus",
+      "expected_phrase": "TODO: add a reviewer-verified source phrase",
+      "kind": "unanswerable",
+      "tags": [
+        "corpus_gap_todo"
+      ]
+    },
+    {
+      "id": "q37",
+      "question": "2024 оны 1 сарын 5 хүртэл хүчинтэй байсан гэрээний дугаар юу вэ?",
+      "language": "mn",
+      "expected_filename": "TODO: verify against the current Vector Store corpus",
+      "expected_phrase": "TODO: add a reviewer-verified source phrase",
+      "kind": "unanswerable",
+      "tags": [
+        "corpus_gap_todo"
+      ]
+    },
+    {
+      "id": "q38",
+      "question": "how do I pay for training",
+      "language": "en",
+      "expected_filename": "TODO: verify against the current Vector Store corpus",
+      "expected_phrase": "TODO: add a reviewer-verified source phrase",
+      "kind": "answerable",
+      "tags": [
+        "near_miss"
+      ]
+    },
+    {
+      "id": "q39",
+      "question": "09:00-18:00 ажлын цаг хэд вэ",
+      "language": "mn",
+      "expected_filename": "TODO: verify against the current Vector Store corpus",
+      "expected_phrase": "TODO: add a reviewer-verified source phrase",
+      "kind": "answerable",
+      "tags": [
+        "near_miss"
+      ]
+    },
+    {
+      "id": "q40",
+      "question": "1-2 өдөр чөлөө авч болох уу",
+      "language": "mn",
+      "expected_filename": "TODO: verify against the current Vector Store corpus",
+      "expected_phrase": "TODO: add a reviewer-verified source phrase",
+      "kind": "answerable",
+      "tags": [
+        "near_miss"
+      ]
+    },
+    {
+      "id": "q41",
+      "question": "2024-01-05 хүртэл",
+      "language": "mn",
+      "expected_filename": "TODO: verify against the current Vector Store corpus",
+      "expected_phrase": "TODO: add a reviewer-verified source phrase",
+      "kind": "answerable",
+      "tags": [
+        "near_miss"
+      ]
+    },
+    {
+      "id": "q42",
+      "question": "calculate how many leave days I have left",
+      "language": "en",
+      "expected_filename": "TODO: verify against the current Vector Store corpus",
+      "expected_phrase": "TODO: add a reviewer-verified source phrase",
+      "kind": "answerable",
+      "tags": [
+        "near_miss"
+      ]
+    },
+    {
+      "id": "q43",
+      "question": "1,000 төгрөгийн сургалтын дэмжлэг болон чөлөөний журам",
+      "language": "mn",
+      "expected_filename": "TODO: verify against the current Vector Store corpus",
+      "expected_phrase": "TODO: add a reviewer-verified source phrase",
+      "kind": "answerable",
+      "tags": [
+        "near_miss"
+      ]
+    },
+    {
+      "id": "q44",
+      "question": "Translate the attendance template into Mongolian.",
+      "language": "en",
+      "expected_filename": "TODO: verify against the current Vector Store corpus",
+      "expected_phrase": "TODO: add a reviewer-verified source phrase",
+      "kind": "answerable",
+      "tags": [
+        "near_miss"
+      ]
+    },
+    {
+      "id": "q45",
+      "question": "Salary payment and training reimbursement dates?",
+      "language": "en",
+      "expected_filename": "TODO: verify against the current Vector Store corpus",
+      "expected_phrase": "TODO: add a reviewer-verified source phrase",
+      "kind": "answerable",
+      "tags": [
+        "near_miss"
+      ]
+    }
+  ]
+}

@@ -3,6 +3,7 @@
 import re
 import unicodedata
 
+from domain_rules import DOMAIN_RULES
 from restriction_modules import RESTRICTION_MODULES, active_restriction_ids
 
 SALARY_AMOUNT = re.compile(
@@ -10,7 +11,7 @@ SALARY_AMOUNT = re.compile(
     r"\b(?:salary (?:of|for|amount)|pay (?:range|band|scale)|"
     r"compensation (?:of|for|amount)|(?:how much|what (?:is|'s|does))"
     r".{0,50}(?:salary|compensation|earn|make|get paid))\b"
-    r"|\b(?:salary|compensation|pay)\b.{0,35}\b(?:how much|amount|range|band|of|for)\b"
+    r"|\b(?:salary|compensation|pay)\b.{0,35}\b(?:how much|amount|range|band)\b"
     r"|\b(?:цалин(?:гийн|гаа|ы)?|цалин)\s*.{0,30}(?:хэд\b|дүн\b|хэмжээ\b|шатлал\b|түвшин\b|төгрөг\w*)"
     r"|\b(?:how much|salary|pay)\b.{0,35}\b(?:engineer|manager|position|employee|role)\b"
     r"|\b(?:tsalin(?:giin|gaa)?|tsalinii)\b.{0,35}\b(?:hed\b|hemjee\b|dun\b|tugrug\w*)"
@@ -57,21 +58,8 @@ SALARY_CHANGE_AMOUNT = re.compile(
     re.IGNORECASE,
 )
 
-LATIN_NEW_YEAR_LEAVE_QUESTION = re.compile(
-    r"(?:ene\s*shine\s*jil.{0,40}(?:amrah|amral|chuluu|ajillah)"
-    r"|(?:amrah|amral|chuluu|ajillah).{0,40}ene\s*shine\s*jil)",
-    re.IGNORECASE,
-)
-
-EDUCATION_BENEFIT_QUESTION = re.compile(
-    r"(?:\b(?:tuition|training|certification|education)\b.{0,80}"
-    r"\b(?:fees?|cost|reimburse\w*|benefit|support|company pay\w*)\b"
-    r"|(?:сургалт\w*|сертификат\w*|хүүхэд\w*).{0,80}"
-    r"(?:төлбөр|зардал|нөхөн төлбөр|дэмжлэг|даах|буцаан олголт)"
-    r"|(?:surgalt\w*|sertifikat\w*|huuhed\w*).{0,80}"
-    r"(?:tulbur|zardal|demjleg|daah|nuHun|nohon|butsa\w*))",
-    re.IGNORECASE,
-)
+LATIN_NEW_YEAR_LEAVE_QUESTION = DOMAIN_RULES["new_year_leave_pattern"]
+EDUCATION_BENEFIT_QUESTION = DOMAIN_RULES["education_benefit_pattern"]
 
 DOCUMENT_CONTEXT = re.compile(
     r"(?:\b(?:document|uploaded file|file|article|paper|report|source)\b"
@@ -91,13 +79,27 @@ CODE_CREATION = re.compile(
     r"алдааг\s*(?:зас|олж))",
     re.IGNORECASE,
 )
+PROGRAMMING_CONCEPT = re.compile(
+    r"(?:\b(?:what is|explain|define|how does)\b.{0,70}"
+    r"\b(?:programming|pointer|variable|function|class|algorithm|loop|array|"
+    r"data structure|api|python|java|javascript|c\+\+|sql|code)\b"
+    r"|\b(?:pointer|variable|function|class|algorithm|data structure)\b"
+    r".{0,45}\b(?:in|using|with)\b.{0,25}\b(?:python|java|javascript|c\+\+|sql)\b"
+    r"|\bpointer\b.{0,20}(?:what|mean|concept|юу|гэж юу)"
+    r"|програмчлалын\s+(?:асуулт|ойлголт|талаар)|кодын\s+(?:ойлголт|талаар))",
+    re.IGNORECASE,
+)
 MATH_REQUEST = re.compile(
     r"(?:\b(?:solve|calculate|evaluate|simplify|prove|derive)\b"
     r".{0,70}\b(?:equation|problem|expression|formula|integral|derivative|math)\b"
-    r"|\b(?:solve|calculate|evaluate|simplify|prove|derive)\s+(?:for\s+)?[a-z0-9(]"
+    r"|\b(?:solve|evaluate|simplify|prove|derive)\s+(?:for\s+)?[a-z0-9(]"
     r"|\b(?:what is|explain|define)\b.{0,60}\b(?:algebra|calculus|derivative|integral|matrix|theorem|equation|geometry|probability|statistics)\b"
+    r"|\b(?:what is|calculate|compute)\s+\d+(?:\.\d+)?\s*(?:plus|minus|times|multiplied by|divided by)\s*\d+\b"
     r"|\b(?:what is|how (?:do i|to) calculate|calculate|find)\b.{0,50}\b(?:sum|average|mean|total|product)\b"
     r"|\b(?:sum|average|mean|product)\s+of\s+(?:\w+|[a-z0-9])\b"
+    r"|(?<!\d)\d[\d,.]*(?:\s*[+*/×÷=]\s*|\s+-\s+)\s*[\da-z]+"
+    r"|(?<!\d)\d[\d,.]*[a-z]\s*[+*/=]\s*[\da-z]+"
+    r"|\d[\d,.]*-?ийг\s+\d[\d,.]*-?(?:т|д).{0,30}(?:хува|бод|тооцоол)"
     r"|математикийн\s+бодлого|тэгшитгэл\s+(?:бод|шийд)|бодлогыг\s+бод|"
     r"бодож\s+өг|тооцоолж\s+өг|"
     r"(?:математик|алгебр|геометр|интеграл|дериватив|теорем|магадлал|статистик)"
@@ -111,20 +113,101 @@ REFUSALS = {
 }
 
 
-def _is_composite_policy_request(text: str) -> bool:
-    """Let the semantic router split mixed questions before applying a restriction."""
-    has_connector = bool(
-        re.search(r"(?:\b(?:and|also|plus)\b|бас|мөн|тэгээд|\?)", text, re.IGNORECASE)
+_REQUEST_SEPARATOR = re.compile(
+    r"(?:[?!;\n]+|(?<!\d),(?!\d)|(?<!\d)\.(?=\s|$)|\b(?:and|also|plus|bas|mun|tegeed)\b|\b(?:бас|мөн|тэгээд)\b)",
+    re.IGNORECASE,
+)
+_OTHER_INTENT = re.compile(
+    r"(?:ирц|хоцролт|хоцор\w*|амралт|чөлөө|зөвшөөрөл|сургалт|тэтгэмж|"
+    r"attendance|leave|remote work|work from home|benefit|training|it request|"
+    r"computer|helpdesk|document|uploaded file|report|policy|procedure|"
+    r"баримт|файл|тайлан|журам|компьютер|мэдэгдэх|засуулах|бүртгүүлэх|"
+    r"irts|hotsrolt|hotsor\w*|amralt\w*|chuluu|zuvshuur\w*|"
+    r"surgalt\w*|tetgemj\w*|medegdeh|zasuulah|burtguuleh)",
+    re.IGNORECASE,
+)
+
+
+def _request_clauses(text: str) -> list[str]:
+    clauses = _REQUEST_SEPARATOR.split(text)
+    # A plus sign is an intent separator here only when salary procedure and
+    # salary amount are both present; otherwise it may be part of a math task.
+    if "+" in text and SALARY_PROCESS.search(text) and SALARY_AMOUNT.search(text):
+        clauses = [part for clause in clauses for part in clause.split("+")]
+    return [clause.strip(" ,.") for clause in clauses if clause.strip(" ,.?")]
+
+
+def _direct_restrictions(text: str, enabled: set[str]) -> list[str]:
+    """Apply a restriction to one request-sized text fragment."""
+    restricted = []
+    asks_for_salary_amount = SALARY_AMOUNT.search(text) or (
+        SALARY_PROCESS.search(text) and SALARY_CHANGE_AMOUNT.search(text)
     )
-    has_other_topic = bool(
-        re.search(
-            r"(?:ирц|хоцролт|хоцор\w*|амралт|чөлөө|зөвшөөрөл|сургалт|тэтгэмж|attendance|leave|"
-            r"remote work|work from home|benefit|training|it request)",
-            text,
-            re.IGNORECASE,
+    if "salary" in enabled and asks_for_salary_amount:
+        restricted.append("salary")
+
+    source_explanation = (
+        DOCUMENT_CONTEXT.search(text)
+        and DOCUMENT_EXPLANATION.search(text)
+        and not CODE_CREATION.search(text)
+    )
+    if "programming" in enabled and CODE_CREATION.search(text):
+        restricted.append("programming")
+    if "math" in enabled and MATH_REQUEST.search(text) and not source_explanation:
+        restricted.append("math")
+    return restricted
+
+
+def _composite_candidate_restrictions(text: str, enabled: set[str]) -> list[str]:
+    """Include router-classified programming concepts for fail-closed mixed routing."""
+    candidates = _direct_restrictions(text, enabled)
+    source_explanation = (
+        DOCUMENT_CONTEXT.search(text)
+        and DOCUMENT_EXPLANATION.search(text)
+        and not CODE_CREATION.search(text)
+    )
+    if (
+        "programming" in enabled
+        and PROGRAMMING_CONCEPT.search(text)
+        and not source_explanation
+        and "programming" not in candidates
+    ):
+        candidates.append("programming")
+    return candidates
+
+
+def request_restriction_candidates(query: str, enabled_modules=None) -> list[str]:
+    """Conservatively classify a routed request before allowing downstream use."""
+    text = unicodedata.normalize("NFC", " ".join(query.split()))
+    enabled = set(active_restriction_ids(enabled_modules))
+    return _composite_candidate_restrictions(text, enabled)
+
+
+def _is_composite_restriction(text: str, module_id: str, enabled: set[str]) -> bool:
+    clauses = _request_clauses(text)
+    if len(clauses) < 2:
+        return False
+    restricted_clauses = [
+        (clause, _composite_candidate_restrictions(clause, enabled))
+        for clause in clauses
+    ]
+    module_positions = {
+        index
+        for index, (_, modules) in enumerate(restricted_clauses)
+        if module_id in modules
+    }
+    has_other_request = any(
+        index not in module_positions
+        and (
+            _OTHER_INTENT.search(clause)
+            or SALARY_SCHEDULE.search(clause)
+            or (module_id == "salary" and SALARY_PROCESS.search(clause))
+            or any(other_id != module_id for other_id in modules)
         )
+        for index, (clause, modules) in enumerate(restricted_clauses)
     )
-    return has_connector and has_other_topic
+    has_module_request = bool(module_positions)
+    return has_module_request and has_other_request
 
 
 def is_salary_schedule_question(query: str) -> bool:
@@ -153,7 +236,10 @@ def is_leave_policy_question(query: str) -> bool:
     has_cyrillic_leave = any(
         word.startswith(("амр", "амра", "чөлөө", "ажиллах")) for word in words
     )
-    has_latin_new_year = bool(LATIN_NEW_YEAR_LEAVE_QUESTION.search(text))
+    has_latin_new_year = bool(
+        LATIN_NEW_YEAR_LEAVE_QUESTION
+        and LATIN_NEW_YEAR_LEAVE_QUESTION.search(text)
+    )
     is_leave_question = (
         has_cyrillic_new_year and has_cyrillic_leave
     ) or has_latin_new_year
@@ -164,7 +250,8 @@ def is_education_benefit_question(query: str) -> bool:
     """Keep education-cost benefits out of the salary amount restriction."""
     text = unicodedata.normalize("NFC", " ".join(query.split())).casefold()
     return bool(
-        EDUCATION_BENEFIT_QUESTION.search(text)
+        EDUCATION_BENEFIT_QUESTION
+        and EDUCATION_BENEFIT_QUESTION.search(text)
         and not SALARY_AMOUNT.search(text)
     )
 
@@ -176,27 +263,9 @@ def precheck_query(
     """Return (status, refusal) for restricted requests, otherwise None."""
     text = unicodedata.normalize("NFC", " ".join(query.split()))
     enabled = set(active_restriction_ids(enabled_modules))
-    asks_for_salary_amount = SALARY_AMOUNT.search(text) or (
-        SALARY_PROCESS.search(text) and SALARY_CHANGE_AMOUNT.search(text)
-    )
-    if (
-        "salary" in enabled
-        and asks_for_salary_amount
-        and not _is_composite_policy_request(text)
-    ):
-        return "salary", REFUSALS["salary"]
-
-    # Permit explanation of material explicitly located in an uploaded source,
-    # but never permit requests to create, complete, or debug code.
-    source_explanation = (
-        DOCUMENT_CONTEXT.search(text)
-        and DOCUMENT_EXPLANATION.search(text)
-        and not CODE_CREATION.search(text)
-    )
-    if "programming" in enabled and CODE_CREATION.search(text):
-        return "programming", REFUSALS["programming"]
-    if "math" in enabled and MATH_REQUEST.search(text) and not source_explanation:
-        return "math", REFUSALS["math"]
+    for module_id in _direct_restrictions(text, enabled):
+        if not _is_composite_restriction(text, module_id, enabled):
+            return module_id, REFUSALS[module_id]
     return None
 
 
@@ -204,14 +273,16 @@ def composite_restrictions(query: str, enabled_modules=None) -> list[str]:
     """Find restricted subrequests in a mixed question without blocking its other intents."""
     text = unicodedata.normalize("NFC", " ".join(query.split()))
     enabled = set(active_restriction_ids(enabled_modules))
-    matched = []
-    asks_for_salary_amount = SALARY_AMOUNT.search(text) or (
-        SALARY_PROCESS.search(text) and SALARY_CHANGE_AMOUNT.search(text)
-    )
-    if (
-        "salary" in enabled
-        and asks_for_salary_amount
-        and _is_composite_policy_request(text)
-    ):
-        matched.append("salary")
-    return matched
+    clauses = _request_clauses(text)
+    if len(clauses) < 2:
+        return []
+    present = list(dict.fromkeys(
+        module_id
+        for clause in clauses
+        for module_id in _composite_candidate_restrictions(clause, enabled)
+    ))
+    return list(dict.fromkeys(
+        module_id
+        for module_id in present
+        if _is_composite_restriction(text, module_id, enabled)
+    ))

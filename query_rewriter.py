@@ -356,7 +356,7 @@ def rewrite_queries(
     client,
     query: str,
     history: list[dict] | None = None,
-    model: str = "gpt-4o-mini",
+    model: str = "gpt-6-luna",
     include_alternatives: bool = True,
     conversation_summary: str = "",
     unsummarized_history: list[dict] | None = None,

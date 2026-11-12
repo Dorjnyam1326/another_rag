@@ -10,6 +10,34 @@ from evaluation.conversation_regression import run
 
 
 class ConversationRegressionTests(unittest.TestCase):
+    def test_real_employee_question_review_seed_is_complete_but_unverified(self):
+        dataset_path = Path(__file__).parent / "fixtures" / "real_employee_questions_review_seed.json"
+        dataset = json.loads(dataset_path.read_text(encoding="utf-8"))
+        cases = dataset["cases"]
+
+        self.assertEqual(dataset["status"], "review_seed_pending")
+        self.assertEqual(len(cases), 11)
+        self.assertEqual([case["id"] for case in cases], [f"real-{index:02d}" for index in range(1, 12)])
+        self.assertTrue(all(case["question"].strip() for case in cases))
+        self.assertTrue(all(case["tags"] and case["expected_behavior"] for case in cases))
+        self.assertTrue(all(case["review"]["status"] == "pending" for case in cases))
+        self.assertTrue(all(case["review"]["source_document"] is None for case in cases))
+        self.assertTrue(all(case["review"]["source_section"] is None for case in cases))
+        self.assertTrue(all(case["review"]["retrieved_rank"] is None for case in cases))
+
+        sessions = {}
+        for case in cases:
+            sessions.setdefault(case["session_id"], []).append(case)
+        for session in sessions.values():
+            self.assertEqual(
+                [case["turn_index"] for case in session],
+                list(range(1, len(session) + 1)),
+            )
+        for case_id in ("real-06", "real-08", "real-10"):
+            case = next(item for item in cases if item["id"] == case_id)
+            self.assertIn("parent_case_id", case)
+            self.assertEqual(case["history_capture_status"], "prior assistant answer not supplied")
+
     def test_story_report_joins_questions_and_coverage_from_fixture(self):
         pdf, stories = run.load_datasets()
         latest = {

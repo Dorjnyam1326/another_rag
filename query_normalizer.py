@@ -3,6 +3,7 @@
 import json
 import re
 import unicodedata
+from time import perf_counter
 
 LATIN_LETTER = re.compile(r"[A-Za-z]")
 CYRILLIC_LETTER = re.compile(r"[\u0400-\u04FF]")
@@ -66,10 +67,11 @@ def clean_text(value: str) -> str:
 def normalize_query(
     client,
     query: str,
-    model: str = "gpt-4o-mini",
+    model: str = "gpt-6-luna",
     history: list[dict] | None = None,
     conversation_summary: str = "",
     unsummarized_history: list[dict] | None = None,
+    trace_capture: dict | None = None,
 ) -> dict:
     """Convert Latin/English input to Cyrillic; Cyrillic input needs no model call."""
     original = clean_text(query)
@@ -91,12 +93,21 @@ def normalize_query(
     ]
     summary = " ".join(conversation_summary.split())[:1200]
     if not LATIN_LETTER.search(original) and not context and not summary and not older_context:
-        return {
+        result = {
             "original_query": original,
             "normalized_query": original,
             "method": "text_cleaning_only",
             "usage": {"input_tokens": 0, "output_tokens": 0},
         }
+        if trace_capture is not None:
+            trace_capture.update(
+                method="text_cleaning_only",
+                normalized_output=result,
+                duration_ms=0,
+                model=None,
+                usage=result["usage"],
+            )
+        return result
 
     instructions = NORMALIZER_INSTRUCTIONS
     input_text = original
@@ -118,15 +129,48 @@ def normalize_query(
             ensure_ascii=False,
         )
 
-    response = client.responses.create(
-        model=model,
-        instructions=instructions,
-        input=input_text,
-        max_output_tokens=200,
-        store=False,
-    )
+    started = perf_counter()
+    if trace_capture is not None:
+        trace_capture["request"] = {
+            "model": model,
+            "instructions": instructions,
+            "input": input_text,
+            "max_output_tokens": 200,
+            "store": False,
+        }
+    try:
+        response = client.responses.create(
+            model=model,
+            instructions=instructions,
+            input=input_text,
+            max_output_tokens=200,
+            store=False,
+        )
+    except Exception as exc:
+        if trace_capture is not None:
+            trace_capture.update(
+                duration_ms=max(0, round((perf_counter() - started) * 1000)),
+                error={"type": type(exc).__name__, "message": str(exc)},
+            )
+        raise
     normalized = clean_text(response.output_text or "")
+    if trace_capture is not None:
+        usage = getattr(response, "usage", None)
+        trace_capture.update(
+            raw_output=response.output_text or "",
+            duration_ms=max(0, round((perf_counter() - started) * 1000)),
+            model=model,
+            usage={
+                "input_tokens": getattr(usage, "input_tokens", 0) if usage else 0,
+                "output_tokens": getattr(usage, "output_tokens", 0) if usage else 0,
+            },
+        )
     if not CYRILLIC_LETTER.search(normalized):
+        if trace_capture is not None:
+            trace_capture["error"] = {
+                "type": "QueryNormalizationError",
+                "message": "Normalizer did not return a Mongolian Cyrillic query.",
+            }
         raise QueryNormalizationError(
             "Normalizer did not return a Mongolian Cyrillic query."
         )
@@ -148,6 +192,11 @@ def normalize_query(
         name = unicodedata.name(character, "")
         if name.startswith(("CYRILLIC", "LATIN")):
             continue
+        if trace_capture is not None:
+            trace_capture["error"] = {
+                "type": "QueryNormalizationError",
+                "message": "Normalizer returned an unsupported writing system.",
+            }
         raise QueryNormalizationError(
             "Normalizer returned an unsupported writing system."
         )
@@ -155,12 +204,17 @@ def normalize_query(
         token.casefold() not in allowed_latin
         for token in LATIN_TOKEN.findall(normalized)
     ):
+        if trace_capture is not None:
+            trace_capture["error"] = {
+                "type": "QueryNormalizationError",
+                "message": "Normalizer introduced a Latin identifier absent from the input.",
+            }
         raise QueryNormalizationError(
             "Normalizer introduced a Latin identifier absent from the input."
         )
 
     usage = getattr(response, "usage", None)
-    return {
+    result = {
         "original_query": original,
         "normalized_query": normalized,
         "method": "llm",
@@ -169,3 +223,6 @@ def normalize_query(
             "output_tokens": getattr(usage, "output_tokens", 0) if usage else 0,
         },
     }
+    if trace_capture is not None:
+        trace_capture["normalized_output"] = result
+    return result
